@@ -3,7 +3,8 @@
 
 namespace beatdown {
 
-// 44100/48000 kept; >48000 -> 48000; else 0 (= LAME picks its own default) (R8)
+// R8: 44100 and 48000 are kept; above 48000 -> 48000; below 44100 -> 44100, so the stream stays
+// MPEG-1 Layer III (the only version with 320 kbps). The rare rates between the two -> 48000.
 int mp3_output_rate(int source_rate);
 
 class LameEncoder : public Encoder {

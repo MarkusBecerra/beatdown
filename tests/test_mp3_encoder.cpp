@@ -1,14 +1,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <atomic>
 #include <thread>
 #include "core/decoder.hpp"
 #include "core/encoder.hpp"
 #include "core/mp3_encoder.hpp"
 #include "core/mp3_parse.hpp"
+#include "core/verifier.hpp"
 #include "fixtures.hpp"
 
 using namespace beatdown;
+using Catch::Matchers::ContainsSubstring;
 
 static Mp3Info encode_and_parse(const fs::path& src, const fs::path& out, EncodeSettings s = {}, Tags tags = {}) {
     std::string err;
@@ -23,12 +26,38 @@ static Mp3Info encode_and_parse(const fs::path& src, const fs::path& out, Encode
     return info;
 }
 
-TEST_CASE("mp3_output_rate keeps 44.1/48 and downsamples above 48") {
+TEST_CASE("mp3_output_rate keeps 44.1/48 kHz and maps lower rates to 44.1 and higher ones to 48") {
     REQUIRE(mp3_output_rate(44100) == 44100);
     REQUIRE(mp3_output_rate(48000) == 48000);
     REQUIRE(mp3_output_rate(96000) == 48000);
     REQUIRE(mp3_output_rate(88200) == 48000);
-    REQUIRE(mp3_output_rate(32000) == 0);
+    REQUIRE(mp3_output_rate(32000) == 44100);
+    REQUIRE(mp3_output_rate(22050) == 44100);
+}
+
+// Left to itself LAME would pick MPEG-2 at 22.05 kHz, where 160 kbps is the ceiling, and the
+// file would only fail verification after a full encode.
+TEST_CASE("LameEncoder encodes a 22.05 kHz source as CBR 320 at 44.1 kHz and it verifies") {
+    TempDir t;
+    auto src = make_audio(t.path / "22k.wav", {.rate = 22050, .seconds = 1.0});
+    Mp3Info info = encode_and_parse(src, t.path / "22k.mp3");
+    REQUIRE(info.sample_rate == 44100);
+    REQUIRE(info.cbr(320));
+    std::string err;
+    auto d = Decoder::open(src, err);
+    REQUIRE(d);
+    REQUIRE(verify_mp3(t.path / "22k.mp3", EncodeSettings{}, d->info()) == "");
+}
+
+TEST_CASE("LameEncoder refuses a CBR bitrate LAME would change and writes nothing") {
+    TempDir t;
+    std::string err;
+    auto d = Decoder::open(make_audio(t.path / "a.wav", {.seconds = 0.2}), err);
+    REQUIRE(d);
+    std::atomic<bool> cancel{false};
+    EncodeSettings s; s.bitrate = 8;   // an MPEG-2 rate: MPEG-1 at 48 kHz starts at 32 kbps
+    REQUIRE_THAT(make_encoder(s)->encode(*d, t.path / "a.mp3", {}, cancel, nullptr), ContainsSubstring("CBR 8 kbps"));
+    REQUIRE_FALSE(fs::exists(t.path / "a.mp3"));
 }
 
 TEST_CASE("LameEncoder writes CBR 320 at 48 kHz with the source duration") {

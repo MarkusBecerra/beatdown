@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <filesystem>
 #include <sstream>
 #include "core/report.hpp"
+#include "core/unicode.hpp"
 
 using namespace beatdown;
 using namespace std::chrono_literals;
@@ -100,7 +102,9 @@ TEST_CASE("ConsoleReporter recaps every failure at the end of the summary, relat
 
     std::string text = out.str();
     REQUIRE_THAT(text, ContainsSubstring("Failed:"));
-    REQUIRE_THAT(text, ContainsSubstring("✗ sub/bad.wav    RIFF header truncated"));
+    // Built with the platform's separator: fs::relative yields "sub\bad.wav" on Windows.
+    std::string rel = path_to_utf8(std::filesystem::path("sub") / "bad.wav");
+    REQUIRE_THAT(text, ContainsSubstring("✗ " + rel + "    RIFF header truncated"));
 }
 
 // Finding 1: the recap is printed in --quiet too (R20: "--quiet prints only the summary and

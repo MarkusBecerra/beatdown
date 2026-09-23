@@ -9,9 +9,7 @@
 namespace beatdown {
 
 int mp3_output_rate(int source_rate) {
-    if (source_rate == 44100 || source_rate == 48000) return source_rate;
-    if (source_rate > 48000) return 48000;
-    return 0;
+    return source_rate <= 44100 ? 44100 : 48000;
 }
 
 namespace {
@@ -52,8 +50,8 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
 
     lame_set_num_channels(gf, a.channels);
     lame_set_in_samplerate(gf, a.sample_rate);
-    int out_rate = mp3_output_rate(a.sample_rate);
-    if (out_rate) lame_set_out_samplerate(gf, out_rate);
+    const int out_rate = mp3_output_rate(a.sample_rate);
+    lame_set_out_samplerate(gf, out_rate);
     lame_set_mode(gf, a.channels == 1 ? MONO : JOINT_STEREO);
     lame_set_quality(gf, 0);
     if (settings_.vbr) {
@@ -84,6 +82,13 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     }
 
     if (lame_init_params(gf) < 0) return "lame_init_params rejected the settings (bitrate/sample-rate combination?)";
+    // LAME silently substitutes what it can't honour (the nearest legal bitrate, another output
+    // rate); refuse here, before anything is written, instead of failing verification after a full encode.
+    if (!settings_.vbr && lame_get_brate(gf) != settings_.bitrate)
+        return "LAME can't encode CBR " + std::to_string(settings_.bitrate) + " kbps at " + std::to_string(out_rate) +
+               " Hz (it would use " + std::to_string(lame_get_brate(gf)) + " kbps)";
+    if (lame_get_out_samplerate(gf) != out_rate)
+        return "LAME would write " + std::to_string(lame_get_out_samplerate(gf)) + " Hz instead of " + std::to_string(out_rate) + " Hz";
     if (log) {
         *log += "lame: " + std::to_string(a.sample_rate) + " Hz -> " + std::to_string(lame_get_out_samplerate(gf)) + " Hz, " +
                 (settings_.vbr ? "VBR q" + std::to_string(*settings_.vbr) : "CBR " + std::to_string(settings_.bitrate)) +

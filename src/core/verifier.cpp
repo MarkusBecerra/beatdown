@@ -17,7 +17,7 @@ std::string verify_mp3(const fs::path& out, const EncodeSettings& s, const Audio
     if (info.trailing_bytes > 128)
         return "output has " + std::to_string(info.trailing_bytes) + " trailing bytes after the last frame";
     int expected_rate = mp3_output_rate(src.sample_rate);
-    if (expected_rate && info.sample_rate != expected_rate)
+    if (info.sample_rate != expected_rate)
         return "sample rate " + std::to_string(info.sample_rate) + " Hz, expected " + std::to_string(expected_rate);
     if (s.vbr) {
         if (!info.has_xing) return "VBR stream lacks a Xing header";

@@ -51,6 +51,7 @@ TEST_CASE("cli: bad arguments exit 2") {
     TempDir t;
     REQUIRE(run_cli({}, t.path / "a.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "300"}, t.path / "b.log").code == 2);
+    REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "8"}, t.path / "g.log").code == 2);   // MPEG-2 only
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "192", "--vbr", "0"}, t.path / "c.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--format", "ogg"}, t.path / "d.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--quiet", "--verbose"}, t.path / "e.log").code == 2);

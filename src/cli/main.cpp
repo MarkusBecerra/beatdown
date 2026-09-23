@@ -45,8 +45,9 @@ int main(int argc, char** argv) {
     app.add_option("destination", destination, "Folder to write outputs into; its last component is created if missing")->required();
     app.add_option("--format", format, "Output format: mp3 (320 kbps CBR) or flac (lossless)")
         ->check(CLI::IsMember({"mp3", "flac"}))->default_str("mp3");
+    // MPEG-1 Layer III rates only: the output is always 44.1 or 48 kHz, which is MPEG-1 (R8).
     auto* bitrate = app.add_option("--bitrate", o.encode.bitrate, "MP3 CBR bitrate in kbps")
-        ->check(CLI::IsMember({8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256, 320}))->default_str("320");
+        ->check(CLI::IsMember({32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}))->default_str("320");
     auto* vbr_opt = app.add_option("--vbr", vbr, "MP3 VBR at LAME quality N (0 = best) instead of --bitrate")->check(CLI::Range(0, 9));
     bitrate->excludes(vbr_opt);
     app.add_option("--jobs", o.jobs, "Parallel encodes (default: all hardware threads)")->check(CLI::PositiveNumber);
