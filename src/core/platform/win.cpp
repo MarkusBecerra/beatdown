@@ -27,4 +27,19 @@ SNDFILE* sf_open_path(const std::filesystem::path& p, int mode, SF_INFO* info) {
     return sf_wchar_open(p.c_str(), mode, info);
 }
 
+std::optional<FileId> file_id(const std::filesystem::path& p) {
+    // Access 0 (metadata only, no read/write) with full sharing so this never contends with
+    // another process's open handle; FILE_FLAG_BACKUP_SEMANTICS is required to open a directory
+    // and also relaxes the access checks CreateFileW would otherwise apply.
+    HANDLE h = CreateFileW(p.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::nullopt;
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool ok = GetFileInformationByHandle(h, &info) != 0;
+    CloseHandle(h);
+    if (!ok) return std::nullopt;
+    return FileId{static_cast<std::uint64_t>(info.dwVolumeSerialNumber),
+                  (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow};
+}
+
 }  // namespace beatdown::platform

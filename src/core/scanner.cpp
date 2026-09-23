@@ -3,6 +3,7 @@
 #include <cctype>
 #include <unordered_map>
 #include <unordered_set>
+#include "core/platform/platform.hpp"
 #include "core/unicode.hpp"
 
 namespace fs = std::filesystem;
@@ -30,51 +31,39 @@ std::string path_key(const fs::path& p) {
     return ascii_lower(std::string(reinterpret_cast<const char*>(g.data()), g.size()));
 }
 
-// Sources in one canonical parent directory, indexed by size: two names for one file always
-// report the same size, so an output whose size doesn't match any source in its directory can't
-// be equivalent to one, without calling fs::equivalent at all. A source whose size couldn't be
-// read at scan time (negative) goes in `unknown_size` instead, since a size comparison can't rule
-// those out; they're always checked.
-struct SourceBucket {
-    std::unordered_map<int64_t, std::vector<fs::path>> by_size;
-    std::vector<fs::path> unknown_size;
-};
-using SourcesByParent = std::unordered_map<std::string, SourceBucket>;   // canonical parent dir (UTF-8) -> sources there
+using FallbackByParent = std::unordered_map<std::string, std::vector<fs::path>>;   // canonical parent dir (UTF-8) -> sources there whose FileId couldn't be read
 
 // True if `output` already exists and is filesystem-identical to one of the audio inputs, however
 // that input's name happens to be spelled. Catches what path_key's ASCII-only case fold can't:
 // NFC/NFD normalization twins, non-ASCII case twins (APFS folds both), and a destination that
 // reaches a source folder by another path, such as a symlink.
 //
-// A flat folder of N files re-scanned in place (all N outputs already exist) would otherwise cost
-// O(N^2) fs::equivalent calls: every job's output falls into the one bucket holding all N sources,
-// and (since it usually isn't equivalent to any of them) each call scans the whole bucket. The
-// size prefilter below makes the common "no match" case one fs::file_size call plus a hash lookup.
-bool overwrites_a_source(const fs::path& output, const SourcesByParent& sources_by_parent) {
+// Compares file identity (device+inode / volume+file-index), not size: a prior version of this
+// function prefiltered by size, but size is content, and content can change mid-scan (a source
+// edited or replaced while a large batch is still being scanned, plausible on a network or
+// cloud-synced library) — a stale cached size would then silently miss the real match. Identity
+// doesn't change when content does, so `source_ids` (built once, before any job runs) stays valid
+// for the whole scan. This also keeps the O(N) cost of a flat folder re-scanned in place (every
+// output already exists): the common "no match" case is one file_id() call plus a hash lookup,
+// not a linear fs::equivalent scan over every source (see 4635993's finding).
+//
+// A source whose id couldn't be read at scan time (rare: permission trouble, an exotic
+// filesystem) can't be placed in `source_ids`, so it goes in `fallback_by_parent` instead, and is
+// checked with fs::equivalent instead — the same cost `source_ids` exists to avoid, but only for
+// that source, not every source in its directory.
+bool overwrites_a_source(const fs::path& output, const std::unordered_set<platform::FileId>& source_ids,
+                          const FallbackByParent& fallback_by_parent) {
     std::error_code ec;
     if (!fs::exists(output, ec)) return false;
+    std::optional<platform::FileId> out_id = platform::file_id(output);
+    if (out_id && source_ids.count(*out_id)) return true;
+    if (out_id && fallback_by_parent.empty()) return false;   // every source's id is in source_ids; no match there
     fs::path parent = fs::weakly_canonical(output.parent_path(), ec);
-    auto it = sources_by_parent.find(path_to_utf8(parent));
-    if (it == sources_by_parent.end()) return false;
-    const SourceBucket& bucket = it->second;
-
-    auto any_equivalent = [&](const std::vector<fs::path>& candidates) {
-        for (const fs::path& s : candidates)
-            if (fs::equivalent(s, output, ec)) return true;
-        return false;
-    };
-
-    std::error_code size_ec;
-    auto out_bytes = static_cast<int64_t>(fs::file_size(output, size_ec));
-    if (size_ec) {
-        // Couldn't size the output: fall back to checking every source in the directory.
-        for (const auto& [size, paths] : bucket.by_size)
-            if (any_equivalent(paths)) return true;
-        return any_equivalent(bucket.unknown_size);
-    }
-    auto sized = bucket.by_size.find(out_bytes);
-    if (sized != bucket.by_size.end() && any_equivalent(sized->second)) return true;
-    return any_equivalent(bucket.unknown_size);
+    auto it = fallback_by_parent.find(path_to_utf8(parent));
+    if (it == fallback_by_parent.end()) return false;
+    for (const fs::path& s : it->second)
+        if (fs::equivalent(s, output, ec)) return true;
+    return false;
 }
 
 // Pairs an audio input with its output path; anything else is only counted.
@@ -97,15 +86,18 @@ void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts,
 // may land on any audio input's path (with --format flac, track.wav -> track.flac), whatever
 // became of that input, since that would replace a source file.
 void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
-    std::unordered_set<std::string> sources;   // path_key of every audio input
-    SourcesByParent sources_by_parent;         // canonical parent dir -> audio inputs there, by size
+    std::unordered_set<std::string> sources;          // path_key of every audio input
+    std::unordered_set<platform::FileId> source_ids;  // file identity of every audio input whose id could be read
+    FallbackByParent fallback_by_parent;   // canonical parent dir -> sources whose id couldn't be read
     for (const Job& j : jobs) {
         sources.insert(path_key(j.source));
-        std::error_code ec;
-        fs::path parent = fs::weakly_canonical(j.source.parent_path(), ec);
-        SourceBucket& bucket = sources_by_parent[path_to_utf8(parent)];
-        if (j.source_bytes < 0) bucket.unknown_size.push_back(j.source);
-        else bucket.by_size[j.source_bytes].push_back(j.source);
+        if (std::optional<platform::FileId> id = platform::file_id(j.source))
+            source_ids.insert(*id);
+        else {
+            std::error_code ec;
+            fs::path parent = fs::weakly_canonical(j.source.parent_path(), ec);
+            fallback_by_parent[path_to_utf8(parent)].push_back(j.source);
+        }
     }
     std::unordered_map<std::string, std::string> claimed;   // output key -> filename of the source that keeps it
     for (Job& j : jobs) {
@@ -113,7 +105,7 @@ void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
         std::string out = path_key(j.output);
         if (out == path_key(j.source) || (fs::exists(j.output, ec) && fs::equivalent(j.source, j.output, ec)))
             j.note = "output would be the source file";
-        else if (sources.count(out) || overwrites_a_source(j.output, sources_by_parent))
+        else if (sources.count(out) || overwrites_a_source(j.output, source_ids, fallback_by_parent))
             j.note = "output would overwrite a source file";
         else if (auto [it, fresh] = claimed.emplace(out, path_to_utf8(j.source.filename())); !fresh)
             j.note = "same output as " + it->second;

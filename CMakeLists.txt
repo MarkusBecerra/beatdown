@@ -62,6 +62,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_version.cpp
     tests/test_tags.cpp
     tests/test_unicode.cpp
+    tests/test_platform.cpp
     tests/fixtures.cpp
     tests/test_decoder.cpp
     tests/test_id3v2.cpp

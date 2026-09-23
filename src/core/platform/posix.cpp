@@ -1,5 +1,6 @@
 #include "core/platform/platform.hpp"
 #include <signal.h>
+#include <sys/stat.h>
 
 namespace beatdown::platform {
 
@@ -25,6 +26,12 @@ void console_utf8() {}
 
 SNDFILE* sf_open_path(const std::filesystem::path& p, int mode, SF_INFO* info) {
     return sf_open(p.c_str(), mode, info);
+}
+
+std::optional<FileId> file_id(const std::filesystem::path& p) {
+    struct stat st{};
+    if (stat(p.c_str(), &st) != 0) return std::nullopt;
+    return FileId{static_cast<std::uint64_t>(st.st_dev), static_cast<std::uint64_t>(st.st_ino)};
 }
 
 }  // namespace beatdown::platform
