@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include "core/decoder.hpp"
 #include "core/options.hpp"
@@ -21,6 +22,9 @@ struct FileResult {
     std::chrono::milliseconds elapsed{0};
     bool disk_full = false;
     std::string verbose_log;
+    // Task 18: the decoded peak (dBFS) of an MP3 output, from the encoder's on-the-fly decode;
+    // nullopt for FLAC (bit-exact, no decoded-peak concept) or a failed/cancelled conversion.
+    std::optional<double> peak_dbfs;
 };
 
 // A temp path in `output`'s folder, ".beatdown-<output filename>.<8 random hex>.part", with fresh

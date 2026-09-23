@@ -9,6 +9,8 @@ namespace fs = std::filesystem;
 namespace beatdown {
 
 static std::string one_decimal(double v) { char b[32]; std::snprintf(b, sizeof b, "%.1f", v); return b; }
+// Task 18: sign always shown, two decimals -- e.g. "+0.48", "-0.32".
+static std::string peak_str(double db) { char b[32]; std::snprintf(b, sizeof b, "%+.2f", db); return b; }
 
 // Finding 1 (fix round 1): the failure recap in summary() shows a path relative to the source
 // root (set by plan()) instead of a bare filename, since a 500-file batch can have several
@@ -61,7 +63,9 @@ void ConsoleReporter::file(const FileResult& r) {
     switch (r.outcome) {
         case Outcome::Converted:
             if (quiet_) return;
-            out_ << "  ✓ " << path_to_utf8(r.job.output.filename()) << "    " << format_size(r.job.source_bytes) << " → " << format_size(r.output_bytes) << "   " << format_secs(r.elapsed) << "\n";
+            out_ << "  ✓ " << path_to_utf8(r.job.output.filename()) << "    " << format_size(r.job.source_bytes) << " → " << format_size(r.output_bytes) << "   " << format_secs(r.elapsed);
+            if (verbose_ && r.peak_dbfs) out_ << "   peak " << peak_str(*r.peak_dbfs) << " dBFS";
+            out_ << "\n";
             break;
         case Outcome::Failed:
             out_ << "  ✗ " << path_to_utf8(r.job.source.filename()) << "    " << r.error << "\n";
@@ -103,6 +107,9 @@ void ConsoleReporter::summary(const Summary& s) {
             long long pct = static_cast<long long>(100.0 * (static_cast<double>(s.bytes_out) / static_cast<double>(s.bytes_in)) - 100.0);
             out_ << "Size " << format_size(s.bytes_in) << " → " << format_size(s.bytes_out) << " (" << (pct < 0 ? "−" : "+") << (pct < 0 ? -pct : pct) << "%)   ";
         }
+        // Task 18: called out even under --quiet (like the failure recap below), and never
+        // affects the exit code -- it's information about loud masters, not a failure.
+        if (s.hot > 0) out_ << "\n" << s.hot << " file(s) decode above +1.0 dBFS — very loud masters; see \"Loud masters\" in the README\n";
     }
     // Finding 1 (fix round 1): recap every failure with its reason so a long batch doesn't force
     // scrolling back through hundreds of per-file lines to find the handful that failed. Printed

@@ -42,7 +42,7 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     const int64_t frames = static_cast<int64_t>(spec.rate * spec.seconds);
     std::vector<float> buf(static_cast<size_t>(frames) * spec.channels);
     for (int64_t i = 0; i < frames; ++i) {
-        float v = 0.5f * static_cast<float>(std::sin(2.0 * kPi * 440.0 * i / spec.rate));
+        float v = static_cast<float>(spec.amplitude * std::sin(2.0 * kPi * spec.freq_hz * i / spec.rate));
         for (int c = 0; c < spec.channels; ++c) buf[i * spec.channels + c] = v;
     }
     sf_writef_float(sf, buf.data(), frames);

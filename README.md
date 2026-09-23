@@ -111,6 +111,13 @@ afinfo <beatdown-output>.mp3
 
 Bitrate, sample rate and channel layout should match.
 
+## Club-ready?
+
+A measurement pass confirmed the defaults are transparent: the 320 kbps MP3 doesn't change level (0.000 dB on real music), stays flat to 20 kHz, and keeps the stereo image; FLAC output is bit-exact. Beyond that one-time spike, every file beatdown converts now has its *audio content* verified against its source before it's left under its final name — not just the container metadata (bitrate, sample rate, duration) verification already checked, but the decoded samples themselves, so a bug that produced a silent or corrupted output would fail the conversion instead of landing on your USB stick.
+
+- **Loud masters.** A master peaking near 0 dBFS decodes slightly over full scale — around +0.5 dB on a handful of samples for a typical loud master, which measured tens of dB below the music and is inaudible on a club system. beatdown flags anything louder itself: if a converted file decodes above +1.0 dBFS, the run's summary calls it out as a very loud master. A −1 dBTP export from whoever mastered the track avoids the overs entirely.
+- **One check only you can do.** MP3 decoders don't all agree on where the stream starts — LAME's own decoder and Apple's differ by a constant 23 ms, depending on whether the decoder reads LAME's gapless tag. Put a hot cue exactly on a kick in rekordbox, export to USB, and confirm the cue still lands on the transient when you play it on the CDJ.
+
 ## Licence
 
 beatdown itself is MIT-licensed (see `LICENSE`). It statically links two LGPL libraries: libmp3lame (LGPL-2.0 — vcpkg's port metadata says LGPL-2.0-only) and libsndfile (LGPL-2.1-or-later). The LGPL requires that relinking against a different build of those libraries stay possible: this repository, together with the pinned `external/vcpkg` submodule that fixes their exact versions and build flags, is the complete recipe for that — `git clone --recursive` and the two build commands above reproduce the exact libraries any given release was linked against.

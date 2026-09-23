@@ -17,6 +17,7 @@ std::string format_clock(std::chrono::milliseconds ms);
 
 struct Summary {
     int converted = 0, skipped = 0, failed = 0, ignored = 0, cancelled = 0;
+    int hot = 0;  // Task 18: converted MP3s whose decoded peak is above +1.0 dBFS
     int64_t bytes_in = 0, bytes_out = 0;
     std::chrono::milliseconds elapsed{0};
     std::vector<FileResult> failures;

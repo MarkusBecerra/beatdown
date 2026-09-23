@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -6,6 +7,10 @@
 #include "core/tags.hpp"
 
 namespace fs = std::filesystem;
+
+// Linear peak amplitude (1.0 = 0 dBFS) for a given dBFS level, for building test sines at a
+// specific level, e.g. FixtureSpec{.amplitude = amp_for_dbfs(-20.0)}.
+inline double amp_for_dbfs(double db) { return std::pow(10.0, db / 20.0); }
 
 struct TempDir {
     fs::path path;
@@ -21,6 +26,8 @@ struct FixtureSpec {
     int rate = 48000;
     int channels = 2;
     double seconds = 1.0;
+    double amplitude = 0.5;  // linear peak amplitude of the test sine (1.0 = 0 dBFS)
+    double freq_hz = 440.0;  // test sine frequency
     beatdown::Tags tags;
 };
 

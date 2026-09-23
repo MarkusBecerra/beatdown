@@ -151,7 +151,12 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
     for (auto& r : results) {
         if (r.job.source.empty()) { ++s.cancelled; continue; }   // never started
         switch (r.outcome) {
-            case Outcome::Converted: ++s.converted; s.bytes_in += r.job.source_bytes; s.bytes_out += r.output_bytes; break;
+            case Outcome::Converted:
+                ++s.converted;
+                s.bytes_in += r.job.source_bytes;
+                s.bytes_out += r.output_bytes;
+                if (r.peak_dbfs && *r.peak_dbfs > 1.0) ++s.hot;
+                break;
             case Outcome::Failed: ++s.failed; s.failures.push_back(r); break;
             case Outcome::Cancelled: ++s.cancelled; break;
         }

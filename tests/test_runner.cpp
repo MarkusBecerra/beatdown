@@ -317,3 +317,21 @@ TEST_CASE("run turns an exception from convert into a failed file and keeps conv
     REQUIRE(rep.last.failures.size() == 1);
     REQUIRE_THAT(rep.last.failures[0].error, ContainsSubstring("boom"));
 }
+
+// Task 18: Summary.hot counts converted files whose decoded peak is above +1.0 dBFS -- a
+// FileResult with peak +2.3 dBFS counts, one with +0.5 dBFS (a typical loud master, per the
+// measurement spike) does not.
+TEST_CASE("run counts Summary.hot from converted files whose decoded peak is above +1.0 dBFS") {
+    TempDir t;
+    make_audio(t.path / "src/hot.wav", {.seconds = 0.1});
+    make_audio(t.path / "src/warm.wav", {.seconds = 0.1});
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    int code = run(opts(t.path / "src", t.path / "out"), rep, cancel, [&](const Job& j, const Options&, const std::atomic<bool>&) -> FileResult {
+        FileResult r; r.job = j; r.outcome = Outcome::Converted;
+        r.peak_dbfs = j.source.filename().string() == "hot.wav" ? 2.3 : 0.5;
+        return r;
+    });
+    REQUIRE(code == 0);
+    REQUIRE(rep.last.converted == 2);
+    REQUIRE(rep.last.hot == 1);
+}

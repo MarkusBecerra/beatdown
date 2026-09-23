@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include "core/encoder.hpp"
 
 namespace beatdown {
@@ -12,9 +13,12 @@ public:
     explicit LameEncoder(EncodeSettings s) : settings_(s) {}
     std::string encode(Decoder& in, const std::filesystem::path& out, const Tags& tags,
                        const std::atomic<bool>& cancel, std::string* verbose_log) override;
+    // Task 18: set after a successful encode() from LAME's own decode-on-the-fly peak detector.
+    std::optional<double> decoded_peak_dbfs() const override { return peak_dbfs_; }
 
 private:
     EncodeSettings settings_;
+    std::optional<double> peak_dbfs_;
 };
 
 }  // namespace beatdown

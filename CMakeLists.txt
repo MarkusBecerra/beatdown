@@ -34,6 +34,7 @@ add_library(beatdown_core STATIC
   src/core/mp3_encoder.cpp
   src/core/flac_encoder.cpp
   src/core/verifier.cpp
+  src/core/content_check.cpp
   src/core/space.cpp
   src/core/scheduler.cpp
   src/core/converter.cpp
@@ -71,6 +72,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_mp3_encoder.cpp
     tests/test_flac_encoder.cpp
     tests/test_verifier.cpp
+    tests/test_content_check.cpp
     tests/test_space.cpp
     tests/test_scheduler.cpp
     tests/test_converter.cpp

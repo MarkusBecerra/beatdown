@@ -123,6 +123,42 @@ TEST_CASE("ConsoleReporter prints the failure recap under --quiet") {
     REQUIRE_THAT(out.str(), ContainsSubstring("✗ bad.wav    boom"));
 }
 
+// Task 18: with --verbose, a converted MP3's peak dBFS is appended to its ✓ line; without
+// --verbose it stays hidden, and a FLAC result (no peak_dbfs) shows neither.
+TEST_CASE("ConsoleReporter shows the decoded peak on the verbose ✓ line only") {
+    FileResult r; r.job.source = "a.wav"; r.job.output = "/out/a.mp3"; r.outcome = Outcome::Converted; r.peak_dbfs = 0.48;
+
+    std::ostringstream verbose_out;
+    ConsoleReporter verbose(verbose_out, false, true);
+    verbose.file(r);
+    REQUIRE_THAT(verbose_out.str(), ContainsSubstring("peak +0.48 dBFS"));
+
+    std::ostringstream plain_out;
+    ConsoleReporter plain(plain_out, false, false);
+    plain.file(r);
+    REQUIRE_THAT(plain_out.str(), !ContainsSubstring("peak"));
+
+    FileResult flac; flac.job.source = "a.wav"; flac.job.output = "/out/a.flac"; flac.outcome = Outcome::Converted;
+    std::ostringstream flac_out;
+    ConsoleReporter flac_rep(flac_out, false, true);
+    flac_rep.file(flac);
+    REQUIRE_THAT(flac_out.str(), !ContainsSubstring("peak"));
+}
+
+// Task 18: the "very loud masters" callout is driven directly by Summary.hot (its aggregation
+// from FileResult.peak_dbfs is a runner concern, covered in test_runner.cpp).
+TEST_CASE("ConsoleReporter prints the hot-files summary line only when Summary.hot is set") {
+    Summary hot; hot.converted = 1; hot.hot = 1;
+    std::ostringstream hot_out;
+    ConsoleReporter(hot_out, false, false).summary(hot);
+    REQUIRE_THAT(hot_out.str(), ContainsSubstring("1 file(s) decode above +1.0 dBFS — very loud masters; see \"Loud masters\" in the README"));
+
+    Summary warm; warm.converted = 1; warm.hot = 0;
+    std::ostringstream warm_out;
+    ConsoleReporter(warm_out, false, false).summary(warm);
+    REQUIRE_THAT(warm_out.str(), !ContainsSubstring("very loud masters"));
+}
+
 // Finding 4 (fix round 1): skipped() must respect --quiet like every other per-item line; it
 // previously ignored quiet_ entirely, so --quiet --dry-run printed skip lines while
 // would_convert() (correctly) stayed silent under quiet — the reverse of R20.

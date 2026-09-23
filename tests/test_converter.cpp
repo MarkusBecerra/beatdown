@@ -204,3 +204,19 @@ TEST_CASE("convert_one produces FLAC when asked") {
     REQUIRE(r.outcome == Outcome::Converted);
     REQUIRE(fs::exists(t.path / "out/a.flac"));
 }
+
+TEST_CASE("convert_one sets peak_dbfs for MP3 outputs and leaves it empty for FLAC") {
+    TempDir t;
+    auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.3});
+    fs::create_directories(t.path / "out");
+    std::atomic<bool> cancel{false};
+
+    FileResult mp3r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
+    REQUIRE(mp3r.outcome == Outcome::Converted);
+    REQUIRE(mp3r.peak_dbfs.has_value());
+
+    Options flac_o = opts(t.path / "out"); flac_o.encode.format = Format::Flac;
+    FileResult flacr = convert_one(job(src, t.path / "out/a.flac"), flac_o, cancel);
+    REQUIRE(flacr.outcome == Outcome::Converted);
+    REQUIRE_FALSE(flacr.peak_dbfs.has_value());
+}

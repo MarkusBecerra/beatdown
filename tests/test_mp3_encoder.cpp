@@ -2,16 +2,46 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <atomic>
+#include <cmath>
 #include <thread>
+#include <vector>
+#include <sndfile.h>
 #include "core/decoder.hpp"
 #include "core/encoder.hpp"
 #include "core/mp3_encoder.hpp"
 #include "core/mp3_parse.hpp"
+#include "core/platform/platform.hpp"
 #include "core/verifier.hpp"
 #include "fixtures.hpp"
 
 using namespace beatdown;
 using Catch::Matchers::ContainsSubstring;
+
+// A hard-clipped, square-ish -0.1 dBFS wave: a true square wave (a real value discontinuity,
+// not just a rounded/clipped sine corner) at the -0.1 dBFS ceiling. Band-limiting a discontinuity
+// like this is exactly what causes Gibbs-phenomenon ringing, which overshoots the original level
+// by a fixed ~9% of the jump regardless of how many harmonics survive the encoder's lowpass --
+// the mechanism behind the "loud master" decoded overs peak reporting exists to catch.
+static fs::path make_clipped_wave(const fs::path& file, double seconds = 1.0, int rate = 48000, int channels = 2) {
+    fs::create_directories(file.parent_path());
+    SF_INFO info{};
+    info.samplerate = rate;
+    info.channels = channels;
+    info.format = SF_FORMAT_WAV | SF_FORMAT_PCM_24;
+    SNDFILE* sf = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
+    if (!sf) throw std::runtime_error("make_clipped_wave: open failed");
+    const double kPi = 3.14159265358979323846;
+    const double clip = amp_for_dbfs(-0.1);
+    const int64_t frames = static_cast<int64_t>(rate * seconds);
+    std::vector<float> buf(static_cast<size_t>(frames) * channels);
+    for (int64_t i = 0; i < frames; ++i) {
+        double v = std::sin(2.0 * kPi * 440.0 * i / rate) >= 0.0 ? clip : -clip;
+        for (int c = 0; c < channels; ++c) buf[static_cast<size_t>(i) * channels + c] = static_cast<float>(v);
+    }
+    sf_writef_float(sf, buf.data(), frames);
+    sf_close(sf);
+    return file;
+}
 
 static Mp3Info encode_and_parse(const fs::path& src, const fs::path& out, EncodeSettings s = {}, Tags tags = {}) {
     std::string err;
@@ -132,4 +162,30 @@ TEST_CASE("LameEncoder refuses more than two channels") {
     auto d = Decoder::open(src, err);
     std::atomic<bool> cancel{false};
     REQUIRE(make_encoder({})->encode(*d, t.path / "4ch.mp3", {}, cancel, nullptr) != "");
+}
+
+TEST_CASE("LameEncoder reports the decoded peak of a -20 dBFS 1 kHz sine within 0.3 dB") {
+    TempDir t;
+    auto src = make_audio(t.path / "a.wav", {.seconds = 1.0, .amplitude = amp_for_dbfs(-20.0), .freq_hz = 1000.0});
+    std::string err;
+    auto d = Decoder::open(src, err);
+    REQUIRE(d);
+    std::atomic<bool> cancel{false};
+    auto enc = make_encoder(EncodeSettings{});
+    REQUIRE(enc->encode(*d, t.path / "a.mp3", {}, cancel, nullptr) == "");
+    REQUIRE(enc->decoded_peak_dbfs().has_value());
+    REQUIRE(*enc->decoded_peak_dbfs() == Catch::Approx(-20.0).margin(0.3));
+}
+
+TEST_CASE("LameEncoder reports a decoded peak above 0 dBFS for a hot, hard-clipped square-ish wave") {
+    TempDir t;
+    auto src = make_clipped_wave(t.path / "hot.wav");
+    std::string err;
+    auto d = Decoder::open(src, err);
+    REQUIRE(d);
+    std::atomic<bool> cancel{false};
+    auto enc = make_encoder(EncodeSettings{});
+    REQUIRE(enc->encode(*d, t.path / "hot.mp3", {}, cancel, nullptr) == "");
+    REQUIRE(enc->decoded_peak_dbfs().has_value());
+    REQUIRE(*enc->decoded_peak_dbfs() > 0.0);
 }
