@@ -23,6 +23,6 @@ struct Mp3Info {
 };
 
 bool parse_mp3(const std::filesystem::path& file, Mp3Info& out, std::string& error);
-std::string build_mp3_frame_for_test(int kbps, int sample_rate, bool padding, bool mono, const char* xing_tag);
+std::string build_mp3_frame_for_test(int kbps, int sample_rate, bool padding, bool mono, const char* xing_tag, bool crc = false);
 
 }  // namespace beatdown

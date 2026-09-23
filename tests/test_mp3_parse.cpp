@@ -55,14 +55,34 @@ TEST_CASE("parse_mp3 sees mixed bitrates as non-CBR and mono as 1 channel") {
     REQUIRE(info.channels == 1);
 }
 
-TEST_CASE("parse_mp3 reports trailing garbage and fails on empty or non-MP3 data") {
+TEST_CASE("parse_mp3 reports trailing garbage") {
     TempDir t;
     write_bytes(t.path / "a.mp3", build_mp3_frame_for_test(320, 44100, false, false, nullptr) + std::string(300, 'x'));
     Mp3Info info; std::string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.trailing_bytes == 300);
+}
+
+TEST_CASE("parse_mp3 fails on empty file") {
+    TempDir t;
     write_bytes(t.path / "e.mp3", "");
+    Mp3Info info; std::string err;
     REQUIRE_FALSE(parse_mp3(t.path / "e.mp3", info, err));
+}
+
+TEST_CASE("parse_mp3 fails on non-MP3 data") {
+    TempDir t;
     write_bytes(t.path / "n.mp3", "not an mp3 at all");
+    Mp3Info info; std::string err;
     REQUIRE_FALSE(parse_mp3(t.path / "n.mp3", info, err));
+}
+
+TEST_CASE("parse_mp3 handles CRC-protected Info frame") {
+    TempDir t;
+    std::string data = build_mp3_frame_for_test(320, 48000, false, false, "Info", true) + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
+    write_bytes(t.path / "a.mp3", data);
+    Mp3Info info; std::string err;
+    REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
+    REQUIRE(info.has_xing);
+    REQUIRE(info.audio_frames == 1);
 }
