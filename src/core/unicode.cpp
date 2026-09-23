@@ -113,14 +113,24 @@ std::string latin1_to_utf8(std::string_view s) {
 }
 
 std::string sanitize_utf8(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
     size_t i = 0;
     while (i < s.size()) {
         uint32_t cp;
         size_t len = decode_utf8(s, i, cp);
         if (len == 0) return cp1252_to_utf8(s);
+        // U+FFFE/U+FFFF are valid code points (decode_utf8 accepts them) but libFLAC's
+        // utf8len_ rejects exactly these two, and libsndfile 1.2.2 ignores that rejection and
+        // appends an uninitialised vorbis-comment entry instead of failing, which crashes.
+        // Replace just these two code points; everything else libFLAC rejects (overlongs,
+        // surrogates, structurally invalid bytes) is already invalid UTF-8 here and takes the
+        // cp1252 path above, never reaching libFLAC unsanitized.
+        if (cp == 0xFFFE || cp == 0xFFFF) append_utf8(out, kReplacement);
+        else out.append(s.data() + i, len);
         i += len;
     }
-    return std::string(s);
+    return out;
 }
 
 std::string path_to_utf8(const std::filesystem::path& p) {

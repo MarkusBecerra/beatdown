@@ -1,11 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <stdexcept>
 #include "core/mp3_parse.hpp"
 #include "core/runner.hpp"
+#include "core/unicode.hpp"
 #include "fixtures.hpp"
 
 using namespace beatdown;
@@ -213,6 +215,47 @@ TEST_CASE("run converts one of two sources that share an output and reports the 
     std::vector<std::string> names;
     for (const auto& e : fs::directory_iterator(t.path / "out")) names.push_back(e.path().filename().string());
     REQUIRE(names == std::vector<std::string>{"track.mp3"});   // and no temp files left behind
+}
+
+// Two spellings that a normalization- or case-insensitive filesystem (APFS) resolves to one file
+// defeat scan()'s ASCII-only path_key fold, which only ever compares name bytes: an NFC-spelled
+// "Café.wav" next to an NFD-spelled "Café.flac", or an accented "ÉTÉ.wav" next to "été.flac" (not
+// ASCII, so the ASCII case fold doesn't touch it either). Portable across filesystems: where the
+// two names really are distinct (e.g. Linux ext4), converting the WAV next to the FLAC is
+// correct, so the only assertion made unconditionally is that the FLAC's bytes never change; the
+// skip is asserted only where the filesystem actually reports the two names as one file.
+TEST_CASE("run never lets an output overwrite a source file reached under a differently spelled name") {
+    struct Pair { std::string wav, flac; };
+    std::vector<Pair> pairs = {
+        {"Caf\xC3\xA9.wav", "Cafe\xCC\x81.flac"},          // NFC "Café" vs NFD "Café"
+        {"\xC3\x89T\xC3\x89.wav", "\xC3\xA9t\xC3\xA9.flac"} // "ÉTÉ" vs "été"
+    };
+    for (const Pair& p : pairs) {
+        TempDir t;
+        fs::path flac_path = t.path / "src" / path_from_utf8(p.flac);
+        make_audio(flac_path, {.container = SF_FORMAT_FLAC, .subtype = SF_FORMAT_PCM_16, .seconds = 2.0});
+        make_audio(t.path / "src" / path_from_utf8(p.wav), {.seconds = 1.0});
+        std::string flac_before = read_file(flac_path);
+
+        RecordingReporter rep; std::atomic<bool> cancel{false};
+        Options o = opts(t.path / "src", t.path / "src");
+        o.encode.format = Format::Flac; o.overwrite = true;
+        run(o, rep, cancel);
+
+        // Unconditional: whatever the filesystem's semantics, the pre-existing FLAC is untouched.
+        REQUIRE(read_file(flac_path) == flac_before);
+
+        std::string wav_stem = p.wav.substr(0, p.wav.size() - 4);   // strip ".wav"
+        fs::path wav_output = t.path / "src" / path_from_utf8(wav_stem + ".flac");
+        fs::path wav_source = t.path / "src" / path_from_utf8(p.wav);
+        std::error_code ec;
+        if (fs::equivalent(wav_output, flac_path, ec)) {
+            auto it = std::find_if(rep.skips.begin(), rep.skips.end(),
+                                    [&](const Job& j) { return j.source == wav_source; });
+            REQUIRE(it != rep.skips.end());
+            REQUIRE(it->note == "output would overwrite a source file");
+        }
+    }
 }
 
 TEST_CASE("run reports a missing source as a usage error") {

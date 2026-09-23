@@ -11,9 +11,12 @@ std::u16string utf8_to_utf16(std::string_view s);
 std::string utf16_to_utf8(std::u16string_view s);
 std::string latin1_to_utf8(std::string_view s);
 
-// Tag text from files is only nominally UTF-8. Valid UTF-8 is returned unchanged; anything else
-// is taken to be Windows-1252 (what older Windows tools write) and the whole string is re-decoded
-// from it, with cp1252's five undefined bytes becoming U+FFFD. The result is always valid UTF-8.
+// Tag text from files is only nominally UTF-8. Valid UTF-8 is returned unchanged, except that the
+// noncharacters U+FFFE and U+FFFF each become U+FFFD: libFLAC's vorbis-comment validation rejects
+// them outright, and libsndfile doesn't handle that rejection safely. Anything else that isn't
+// valid UTF-8 is taken to be Windows-1252 (what older Windows tools write) and the whole string is
+// re-decoded from it, with cp1252's five undefined bytes becoming U+FFFD. The result is always
+// valid UTF-8.
 std::string sanitize_utf8(std::string_view s);
 std::string path_to_utf8(const std::filesystem::path& p);
 

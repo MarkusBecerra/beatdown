@@ -30,15 +30,18 @@ std::string path_key(const fs::path& p) {
     return ascii_lower(std::string(reinterpret_cast<const char*>(g.data()), g.size()));
 }
 
-using SourcesByName = std::unordered_map<std::string, std::vector<fs::path>>;   // lower-cased filename -> audio inputs
+using SourcesByParent = std::unordered_map<std::string, std::vector<fs::path>>;   // canonical parent dir (UTF-8) -> audio inputs there
 
-// True if `output` already exists and is one of the audio inputs. This catches what path_key
-// can't: a destination that reaches a source folder by another path, such as a symlink.
-bool is_existing_source(const fs::path& output, const SourcesByName& sources_by_name) {
+// True if `output` already exists and is filesystem-identical to one of the audio inputs, however
+// that input's name happens to be spelled. Catches what path_key's ASCII-only case fold can't:
+// NFC/NFD normalization twins, non-ASCII case twins (APFS folds both), and a destination that
+// reaches a source folder by another path, such as a symlink.
+bool overwrites_a_source(const fs::path& output, const SourcesByParent& sources_by_parent) {
     std::error_code ec;
     if (!fs::exists(output, ec)) return false;
-    auto it = sources_by_name.find(ascii_lower(path_to_utf8(output.filename())));
-    if (it == sources_by_name.end()) return false;
+    fs::path parent = fs::weakly_canonical(output.parent_path(), ec);
+    auto it = sources_by_parent.find(path_to_utf8(parent));
+    if (it == sources_by_parent.end()) return false;
     for (const fs::path& s : it->second)
         if (fs::equivalent(s, output, ec)) return true;
     return false;
@@ -65,10 +68,12 @@ void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts,
 // became of that input, since that would replace a source file.
 void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
     std::unordered_set<std::string> sources;   // path_key of every audio input
-    SourcesByName sources_by_name;
+    SourcesByParent sources_by_parent;         // canonical parent dir -> audio inputs there
     for (const Job& j : jobs) {
         sources.insert(path_key(j.source));
-        sources_by_name[ascii_lower(path_to_utf8(j.source.filename()))].push_back(j.source);
+        std::error_code ec;
+        fs::path parent = fs::weakly_canonical(j.source.parent_path(), ec);
+        sources_by_parent[path_to_utf8(parent)].push_back(j.source);
     }
     std::unordered_map<std::string, std::string> claimed;   // output key -> filename of the source that keeps it
     for (Job& j : jobs) {
@@ -76,7 +81,7 @@ void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
         std::string out = path_key(j.output);
         if (out == path_key(j.source) || (fs::exists(j.output, ec) && fs::equivalent(j.source, j.output, ec)))
             j.note = "output would be the source file";
-        else if (sources.count(out) || is_existing_source(j.output, sources_by_name))
+        else if (sources.count(out) || overwrites_a_source(j.output, sources_by_parent))
             j.note = "output would overwrite a source file";
         else if (auto [it, fresh] = claimed.emplace(out, path_to_utf8(j.source.filename())); !fresh)
             j.note = "same output as " + it->second;

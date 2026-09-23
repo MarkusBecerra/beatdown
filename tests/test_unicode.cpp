@@ -50,6 +50,14 @@ TEST_CASE("sanitize_utf8 re-decodes text that isn't UTF-8 as Windows-1252") {
     REQUIRE(sanitize_utf8("\x93quoted\x94 \x96 caf\xE9") == "“quoted” – café");
 }
 
+TEST_CASE("sanitize_utf8 replaces the FFFE/FFFF noncharacters libFLAC rejects, without falling back to cp1252") {
+    REQUIRE(sanitize_utf8("Mix \xEF\xBF\xBF") == "Mix \xEF\xBF\xBD");   // U+FFFF -> U+FFFD
+    REQUIRE(sanitize_utf8("Mix \xEF\xBF\xBE") == "Mix \xEF\xBF\xBD");   // U+FFFE -> U+FFFD
+    // Valid multi-byte UTF-8 elsewhere in the same string must survive untouched: a cp1252
+    // re-read (the fallback for genuinely invalid UTF-8) would mangle "é"'s own bytes.
+    REQUIRE(sanitize_utf8("Beyonc\xC3\xA9 Mix \xEF\xBF\xBF") == "Beyonc\xC3\xA9 Mix \xEF\xBF\xBD");
+}
+
 TEST_CASE("sanitize_utf8 treats every malformed sequence as invalid (overlong / surrogate / beyond U+10FFFF / bad continuation / truncated)") {
     REQUIRE(sanitize_utf8("\xC0\xAF") == "\xC3\x80\xC2\xAF");                        // overlong "/" -> "À¯"
     REQUIRE(sanitize_utf8("\xED\xA0\x80") == "\xC3\xAD\xC2\xA0\xE2\x82\xAC");        // lone surrogate U+D800 -> "í", NBSP, "€"

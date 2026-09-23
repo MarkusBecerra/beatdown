@@ -175,6 +175,25 @@ TEST_CASE("convert_one writes a Windows-1252 INFO title into the FLAC as proper 
     REQUIRE(d->tags().title == "Beyoncé Mix");
 }
 
+// A WAV whose raw INFO title contains U+FFFF, a noncharacter libFLAC's vorbis-comment validation
+// rejects outright; libsndfile 1.2.2 ignores that rejection and appends an uninitialised comment
+// entry instead of failing cleanly, which crashes the process (SIGSEGV) and loses the whole batch.
+// sanitize_utf8 must replace it (and its sibling U+FFFE) with U+FFFD before either encoder sees it.
+TEST_CASE("convert_one replaces the FFFE/FFFF noncharacters libFLAC rejects instead of crashing") {
+    TempDir t;
+    Tags raw; raw.title = std::string("Mix \xEF\xBF\xBF");
+    auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2, .tags = raw});
+    fs::create_directories(t.path / "out");
+    Options o = opts(t.path / "out"); o.encode.format = Format::Flac;
+    std::atomic<bool> cancel{false};
+    FileResult r = convert_one(job(src, t.path / "out/a.flac"), o, cancel);
+    REQUIRE(r.outcome == Outcome::Converted);
+    std::string err;
+    auto d = Decoder::open(t.path / "out/a.flac", err);
+    REQUIRE(d);
+    REQUIRE(d->tags().title == "Mix \xEF\xBF\xBD");
+}
+
 TEST_CASE("convert_one produces FLAC when asked") {
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2});
