@@ -133,6 +133,23 @@ TEST_CASE("scan never lets an output overwrite another source file with or witho
     }
 }
 
+// A destination that reaches the source folder by another path (here a symlink) defeats a purely
+// lexical comparison of paths; the existing file's identity still gives it away.
+TEST_CASE("scan never lets an output overwrite a source reached through a symlinked destination") {
+    TempDir t;
+    write_bytes(t.path / "src/track.wav", "x");
+    write_bytes(t.path / "src/track.flac", "x");
+    std::error_code ec;
+    fs::create_directory_symlink(t.path / "src", t.path / "alias", ec);
+    if (ec) SKIP("cannot create a directory symlink here: " + ec.message());
+    auto o = opts(t.path / "src", t.path / "alias"); o.encode.format = Format::Flac; o.overwrite = true;
+    std::string err;
+    Plan p = scan(o, err);
+    REQUIRE(p.to_convert.empty());
+    REQUIRE(note_for(p.skipped, t.path / "src/track.flac") == "output would be the source file");
+    REQUIRE(note_for(p.skipped, t.path / "src/track.wav") == "output would overwrite a source file");
+}
+
 TEST_CASE("scan does not descend into a destination that lives inside the source") {
     TempDir t;
     write_bytes(t.path / "src/one.wav", "x");
