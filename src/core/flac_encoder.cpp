@@ -45,7 +45,11 @@ std::string FlacEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     double level = 1.0;  // libsndfile maps 1.0 to FLAC compression level 8
     sf_command(sf, SFC_SET_COMPRESSION_LEVEL, &level, sizeof(level));
     sf_command(sf, SFC_SET_CLIPPING, nullptr, SF_TRUE);
-    auto set = [&](int key, const std::optional<std::string>& v) { if (v && !v->empty()) sf_set_string(sf, key, v->c_str()); };
+    // Vorbis comments must be UTF-8: libFLAC rejects anything else and libsndfile ignores the
+    // rejection, which crashes. Tags are sanitized when read; this also covers every other source.
+    auto set = [&](int key, const std::optional<std::string>& v) {
+        if (v && !v->empty()) sf_set_string(sf, key, sanitize_utf8(*v).c_str());
+    };
     set(SF_STR_TITLE, tags.title);
     set(SF_STR_ARTIST, tags.artist);
     set(SF_STR_ALBUM, tags.album);

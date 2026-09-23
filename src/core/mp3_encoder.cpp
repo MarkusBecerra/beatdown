@@ -17,10 +17,18 @@ int mp3_output_rate(int source_rate) {
 namespace {
 void quiet_log(const char*, va_list) {}
 
-// All text goes through UTF-16 so non-ASCII survives; LAME requires a leading BOM.
+// All text goes through UTF-16 so non-ASCII survives; LAME's *_utf16 setters require a leading
+// byte-order mark, built numerically here so no editor can silently strip it. Sanitizing again
+// covers tags from any source, filename-derived ones included.
+std::u16string utf16_with_bom(const std::string& utf8) {
+    std::u16string u(1, char16_t(0xFEFF));
+    u += utf8_to_utf16(sanitize_utf8(utf8));
+    return u;
+}
+
 void set_text(lame_global_flags* gf, const char* id, const std::optional<std::string>& v) {
     if (!v || v->empty()) return;
-    std::u16string u = u"﻿" + utf8_to_utf16(*v);
+    std::u16string u = utf16_with_bom(*v);
     id3tag_set_textinfo_utf16(gf, id, reinterpret_cast<const unsigned short*>(u.c_str()));
 }
 
@@ -68,7 +76,7 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
         set_text(gf, "TRCK", tags.track);
         set_text(gf, "TCON", tags.genre);
         if (tags.comment && !tags.comment->empty()) {
-            std::u16string u = u"﻿" + utf8_to_utf16(*tags.comment);
+            std::u16string u = utf16_with_bom(*tags.comment);
             id3tag_set_comment_utf16(gf, nullptr, nullptr, reinterpret_cast<const unsigned short*>(u.c_str()));
         }
     } else {

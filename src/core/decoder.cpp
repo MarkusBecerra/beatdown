@@ -17,10 +17,11 @@ static int bits_for(int format) {
     }
 }
 
+// libsndfile hands back the tag's bytes as stored, which older Windows tools wrote as cp1252.
 static std::optional<std::string> str(SNDFILE* sf, int key) {
     const char* s = sf_get_string(sf, key);
     if (!s || !*s) return std::nullopt;
-    return std::string(s);
+    return sanitize_utf8(s);
 }
 
 std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::string& error) {

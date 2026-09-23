@@ -17,7 +17,7 @@ static uint32_t be32(const unsigned char* p) {
 static std::string decode_text(int enc, std::string_view data) {
     std::string out;
     if (enc == 0) out = latin1_to_utf8(data);
-    else if (enc == 3) out = std::string(data);
+    else if (enc == 3) out = sanitize_utf8(data);   // declared UTF-8 is not always valid UTF-8
     else {
         std::u16string u;
         for (size_t i = 0; i + 1 < data.size(); i += 2) {

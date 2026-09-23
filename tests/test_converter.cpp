@@ -128,6 +128,38 @@ TEST_CASE("convert_one writes the derived tags into the MP3") {
     REQUIRE(info.tags.title == "slipz");
 }
 
+// A WAV whose raw INFO title is Windows-1252 ("Beyonc\xE9 Mix"), as an older Windows tool writes it.
+static fs::path cp1252_titled_wav(const fs::path& file) {
+    Tags raw; raw.title = std::string("Beyonc\xE9 Mix");
+    return make_audio(file, {.seconds = 0.2, .tags = raw});
+}
+
+TEST_CASE("convert_one writes a Windows-1252 INFO title into the MP3 as proper text") {
+    TempDir t;
+    auto src = cp1252_titled_wav(t.path / "src/a.wav");
+    fs::create_directories(t.path / "out");
+    std::atomic<bool> cancel{false};
+    FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
+    REQUIRE(r.outcome == Outcome::Converted);
+    Mp3Info info; std::string err;
+    REQUIRE(parse_mp3(t.path / "out/a.mp3", info, err));
+    REQUIRE(info.tags.title == "Beyoncé Mix");
+}
+
+TEST_CASE("convert_one writes a Windows-1252 INFO title into the FLAC as proper text without crashing") {
+    TempDir t;
+    auto src = cp1252_titled_wav(t.path / "src/a.wav");
+    fs::create_directories(t.path / "out");
+    Options o = opts(t.path / "out"); o.encode.format = Format::Flac;
+    std::atomic<bool> cancel{false};
+    FileResult r = convert_one(job(src, t.path / "out/a.flac"), o, cancel);
+    REQUIRE(r.outcome == Outcome::Converted);
+    std::string err;
+    auto d = Decoder::open(t.path / "out/a.flac", err);
+    REQUIRE(d);
+    REQUIRE(d->tags().title == "Beyoncé Mix");
+}
+
 TEST_CASE("convert_one produces FLAC when asked") {
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2});

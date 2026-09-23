@@ -75,6 +75,18 @@ TEST_CASE("Decoder exposes LIST/INFO tags") {
     REQUIRE_FALSE(d->tags().album.has_value());
 }
 
+// sf_set_string stores the bytes as given, so this writes a raw Windows-1252 INFO title.
+TEST_CASE("Decoder re-decodes a LIST/INFO tag that isn't UTF-8 as Windows-1252") {
+    TempDir t;
+    Tags raw; raw.title = std::string("Beyonc\xE9 Mix"); raw.artist = "Plain Artist";
+    auto f = make_audio(t.path / "cp1252.wav", {.seconds = 0.1, .tags = raw});
+    std::string err;
+    auto d = Decoder::open(f, err);
+    REQUIRE(d);
+    REQUIRE(d->tags().title == "Beyoncé Mix");
+    REQUIRE(d->tags().artist == "Plain Artist");
+}
+
 TEST_CASE("Decoder read_int and seek_start") {
     TempDir t;
     std::string err;

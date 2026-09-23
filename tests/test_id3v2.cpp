@@ -26,6 +26,13 @@ TEST_CASE("parse_id3v2 reads UTF-8, UTF-16 and latin1 text frames") {
     }
 }
 
+TEST_CASE("parse_id3v2 re-decodes a UTF-8 (encoding 3) frame that isn't valid UTF-8 as Windows-1252") {
+    Tags raw; raw.title = std::string("Beyonc\xE9 Mix");
+    Tags t;
+    REQUIRE(parse_id3v2(build_id3v2_for_test(raw, 3), t));
+    REQUIRE(t.title == "Beyoncé Mix");
+}
+
 TEST_CASE("parse_id3v2 rejects non-tags and truncated tags") {
     Tags t;
     REQUIRE_FALSE(parse_id3v2("RIFF....", t));
