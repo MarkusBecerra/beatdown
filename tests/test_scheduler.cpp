@@ -74,6 +74,7 @@ TEST_CASE("run_parallel with multiple workers rethrows first exception") {
         run_parallel(4, 50, [&](size_t i) {
             ran++;
             if (i == 0) throw std::runtime_error("boom");
+            std::this_thread::sleep_for(10ms);
         }, cancel),
         std::runtime_error
     );
