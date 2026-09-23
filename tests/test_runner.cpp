@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <atomic>
 #include <mutex>
 #include <stdexcept>
+#include "core/mp3_parse.hpp"
 #include "core/runner.hpp"
 #include "fixtures.hpp"
 
@@ -190,6 +192,27 @@ TEST_CASE("run stops launching after a disk-full failure and after cancellation"
     REQUIRE(code2 == 130);
     REQUIRE(calls2 == 2);
     REQUIRE(rep2.last.interrupted);
+}
+
+// Two sources, one output: the first in name order (track.aiff) is converted, the other is
+// skipped, and the output really is the kept source's audio (1 s, not the 3 s WAV).
+TEST_CASE("run converts one of two sources that share an output and reports the other as skipped") {
+    TempDir t;
+    make_audio(t.path / "src/track.aiff", {.container = SF_FORMAT_AIFF, .seconds = 1.0});
+    make_audio(t.path / "src/track.wav", {.seconds = 3.0});
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    REQUIRE(run(opts(t.path / "src", t.path / "out"), rep, cancel) == 0);
+    REQUIRE(rep.last.converted == 1);
+    REQUIRE(rep.last.skipped == 1);
+    REQUIRE(rep.last.failed == 0);
+    REQUIRE(rep.skips.size() == 1);
+    REQUIRE(rep.skips[0].note == "same output as track.aiff");
+    Mp3Info info; std::string err;
+    REQUIRE(parse_mp3(t.path / "out/track.mp3", info, err));
+    REQUIRE(info.duration_seconds() == Catch::Approx(1.0).margin(0.2));
+    std::vector<std::string> names;
+    for (const auto& e : fs::directory_iterator(t.path / "out")) names.push_back(e.path().filename().string());
+    REQUIRE(names == std::vector<std::string>{"track.mp3"});   // and no temp files left behind
 }
 
 TEST_CASE("run reports a missing source as a usage error") {

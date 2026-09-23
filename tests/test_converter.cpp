@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <atomic>
+#include <cctype>
 #include "core/converter.hpp"
 #include "core/decoder.hpp"
 #include "core/mp3_parse.hpp"
@@ -17,13 +18,27 @@ static bool has_temp_files(const fs::path& dir) {
     return false;
 }
 
-TEST_CASE("temp_path_for is a dotfile in the same folder with a .part suffix") {
-    REQUIRE(temp_path_for("/x/y/Track.mp3") == fs::path("/x/y/.beatdown-Track.mp3.part"));
+// ".beatdown-<name>." + 8 hex digits + ".part"
+static bool is_temp_name_for(const std::string& temp, const std::string& name) {
+    const std::string prefix = ".beatdown-" + name + ".", suffix = ".part";
+    if (temp.size() != prefix.size() + 8 + suffix.size()) return false;
+    if (!temp.starts_with(prefix) || !temp.ends_with(suffix)) return false;
+    for (size_t i = prefix.size(); i < prefix.size() + 8; ++i)
+        if (!std::isxdigit(static_cast<unsigned char>(temp[i]))) return false;
+    return true;
+}
+
+TEST_CASE("temp_path_for is a unique dotfile in the output's folder with a .part suffix") {
+    fs::path a = temp_path_for("/x/y/Track.mp3"), b = temp_path_for("/x/y/Track.mp3");
+    REQUIRE(a.parent_path() == fs::path("/x/y"));
+    REQUIRE(is_temp_name_for(path_to_utf8(a.filename()), "Track.mp3"));
+    REQUIRE(is_temp_name_for(path_to_utf8(b.filename()), "Track.mp3"));
+    REQUIRE(a != b);
 }
 
 TEST_CASE("temp_path_for keeps a non-ASCII filename through UTF-8, not the ANSI codepage") {
     fs::path p = fs::path("/x/y") / path_from_utf8("Måns – 東京.mp3");
-    REQUIRE(path_to_utf8(temp_path_for(p).filename()) == ".beatdown-Måns – 東京.mp3.part");
+    REQUIRE(is_temp_name_for(path_to_utf8(temp_path_for(p).filename()), "Måns – 東京.mp3"));
 }
 
 TEST_CASE("looks_like_disk_full flags available space below the estimate") {

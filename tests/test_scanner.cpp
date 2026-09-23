@@ -83,6 +83,56 @@ TEST_CASE("scan uses .flac outputs for --format flac and never maps a file onto 
     REQUIRE(p.skipped[0].note == "output would be the source file");
 }
 
+static std::string note_for(const std::vector<Job>& jobs, const fs::path& source) {
+    for (const auto& j : jobs) if (j.source == source) return j.note;
+    return "<not in this list>";
+}
+
+TEST_CASE("scan keeps the first of two sources that map to the same output and skips the other") {
+    TempDir t;
+    write_bytes(t.path / "src/track.wav", "x");
+    write_bytes(t.path / "src/track.aiff", "x");
+    std::string err;
+    Plan p = scan(opts(t.path / "src", t.path / "out"), err);
+    REQUIRE(p.to_convert.size() == 1);
+    REQUIRE(p.to_convert[0].source == t.path / "src/track.aiff");   // sorts first
+    REQUIRE(p.skipped.size() == 1);
+    REQUIRE(note_for(p.skipped, t.path / "src/track.wav") == "same output as track.aiff");
+}
+
+// Track.mp3 and track.mp3 are one file on the case-insensitive volumes macOS and Windows use by
+// default. Byte order puts "Track.wav" ('T' = 0x54) before "track.aiff" ('t' = 0x74).
+TEST_CASE("scan treats outputs that differ only in letter case as the same output") {
+    TempDir t;
+    write_bytes(t.path / "src/Track.wav", "x");
+    write_bytes(t.path / "src/track.aiff", "x");
+    std::string err;
+    Plan p = scan(opts(t.path / "src", t.path / "out"), err);
+    REQUIRE(p.to_convert.size() == 1);
+    REQUIRE(p.to_convert[0].source == t.path / "src/Track.wav");
+    REQUIRE(p.skipped.size() == 1);
+    REQUIRE(note_for(p.skipped, t.path / "src/track.aiff") == "same output as Track.wav");
+}
+
+TEST_CASE("scan never lets an output overwrite another source file with or without --overwrite") {
+    TempDir t;
+    write_bytes(t.path / "src/track.wav", "x");
+    write_bytes(t.path / "src/track.flac", "x");
+    write_bytes(t.path / "src/Other.flac", "x");
+    write_bytes(t.path / "src/other.aiff", "x");
+    for (bool overwrite : {false, true}) {
+        auto o = opts(t.path / "src", t.path / "src"); o.encode.format = Format::Flac; o.overwrite = overwrite;
+        std::string err;
+        Plan p = scan(o, err);
+        REQUIRE(p.to_convert.empty());
+        REQUIRE(p.skipped.size() == 4);
+        REQUIRE(note_for(p.skipped, t.path / "src/track.flac") == "output would be the source file");
+        REQUIRE(note_for(p.skipped, t.path / "src/track.wav") == "output would overwrite a source file");
+        REQUIRE(note_for(p.skipped, t.path / "src/Other.flac") == "output would be the source file");
+        REQUIRE(note_for(p.skipped, t.path / "src/other.aiff") == "output would overwrite a source file");
+    }
+}
+
 TEST_CASE("scan does not descend into a destination that lives inside the source") {
     TempDir t;
     write_bytes(t.path / "src/one.wav", "x");

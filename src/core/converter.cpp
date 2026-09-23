@@ -1,6 +1,8 @@
 #include "core/converter.hpp"
 #include <cerrno>
+#include <cstdio>
 #include <limits>
+#include <random>
 #include <system_error>
 #include "core/encoder.hpp"
 #include "core/space.hpp"
@@ -12,7 +14,10 @@ namespace fs = std::filesystem;
 namespace beatdown {
 
 fs::path temp_path_for(const fs::path& output) {
-    return output.parent_path() / path_from_utf8(".beatdown-" + path_to_utf8(output.filename()) + ".part");
+    thread_local std::mt19937_64 rng{std::random_device{}()};
+    char hex[9];
+    std::snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(rng() & 0xFFFFFFFFu));
+    return output.parent_path() / path_from_utf8(".beatdown-" + path_to_utf8(output.filename()) + "." + hex + ".part");
 }
 
 Tags resolve_tags(const Decoder& d, const Options& o) {
@@ -50,7 +55,6 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
     if (ec) return done(Outcome::Failed, "cannot create " + path_to_utf8(job.output.parent_path()) + ": " + ec.message());
 
     fs::path tmp = temp_path_for(job.output);
-    fs::remove(tmp, ec);
     struct Cleanup { const fs::path& p; bool armed = true; ~Cleanup() { if (armed) { std::error_code e; fs::remove(p, e); } } } cleanup{tmp};
 
     Tags tags = resolve_tags(*dec, o);

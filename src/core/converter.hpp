@@ -23,6 +23,8 @@ struct FileResult {
     std::string verbose_log;
 };
 
+// A temp path in `output`'s folder, ".beatdown-<output filename>.<8 random hex>.part", with fresh
+// random digits on every call, so two jobs don't write one temp file even if they share an output.
 std::filesystem::path temp_path_for(const std::filesystem::path& output);
 Tags resolve_tags(const Decoder& d, const Options& o);
 
