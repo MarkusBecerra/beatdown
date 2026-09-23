@@ -25,6 +25,7 @@ find_package(Threads REQUIRED)
 add_library(beatdown_core STATIC
   src/core/version.cpp
   src/core/tags.cpp
+  src/core/unicode.cpp
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
@@ -32,6 +33,9 @@ target_compile_definitions(beatdown_core PUBLIC BEATDOWN_VERSION="${PROJECT_VERS
 if(WIN32)
   target_compile_definitions(beatdown_core PUBLIC
     ENABLE_SNDFILE_WINDOWS_PROTOTYPES=1 NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+  target_sources(beatdown_core PRIVATE src/core/platform/win.cpp)
+else()
+  target_sources(beatdown_core PRIVATE src/core/platform/posix.cpp)
 endif()
 
 add_executable(beatdown src/cli/main.cpp)
@@ -44,6 +48,7 @@ if(BEATDOWN_BUILD_TESTS)
   add_executable(beatdown_tests
     tests/test_version.cpp
     tests/test_tags.cpp
+    tests/test_unicode.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_compile_definitions(beatdown_tests PRIVATE BEATDOWN_BIN="$<TARGET_FILE:beatdown>")
