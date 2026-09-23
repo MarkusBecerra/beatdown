@@ -7,4 +7,4 @@ public:
     std::string encode(Decoder& in, const std::filesystem::path& out, const Tags& tags,
                        const std::atomic<bool>& cancel, std::string* verbose_log) override;
 };
-}
+}  // namespace beatdown

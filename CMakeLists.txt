@@ -62,6 +62,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_scanner.cpp
     tests/test_mp3_parse.cpp
     tests/test_mp3_encoder.cpp
+    tests/test_flac_encoder.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_include_directories(beatdown_tests PRIVATE tests)
