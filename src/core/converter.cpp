@@ -80,10 +80,7 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
     if (ec) return done(Outcome::Failed, "cannot read source modification time: " + ec.message());
     fs::last_write_time(tmp, src_mtime, ec);
     if (ec) return done(Outcome::Failed, "cannot set modification time: " + ec.message());
-    if (o.overwrite) {
-        fs::remove(job.output, ec);
-        if (ec) return done(Outcome::Failed, "cannot replace existing output: " + ec.message());
-    }
+    // Replaces an existing output (--overwrite) atomically on POSIX and with MSVC's std::filesystem.
     fs::rename(tmp, job.output, ec);
     if (ec) return done(Outcome::Failed, "cannot rename to " + path_to_utf8(job.output) + ": " + ec.message());
     cleanup.armed = false;

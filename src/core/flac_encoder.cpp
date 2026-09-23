@@ -61,8 +61,8 @@ std::string FlacEncoder::encode(Decoder& in, const std::filesystem::path& out, c
 
     std::string e = a.is_float ? copy_frames<float>(in, sf, cancel) : copy_frames<int32_t>(in, sf, cancel);
     if (!e.empty()) return e;
-    sf_close(sf);
     closer.s = nullptr;
+    if (int rc = sf_close(sf); rc != 0) return std::string("FLAC finalize failed: ") + sf_error_number(rc);
     return "";
 }
 

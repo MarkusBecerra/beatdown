@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <string>
 #include <CLI/CLI.hpp>
@@ -77,13 +78,23 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    o.source = expand_tilde(source);
-    o.destination = expand_tilde(destination);
-    o.encode.format = format == "flac" ? beatdown::Format::Flac : beatdown::Format::Mp3;
-    if (vbr >= 0) o.encode.vbr = vbr;
-    o.recursive = !no_recursive;
+    // Past parsing, an exception is a bug rather than a usage error: say so and exit 1 instead of
+    // letting it reach std::terminate.
+    try {
+        o.source = expand_tilde(source);
+        o.destination = expand_tilde(destination);
+        o.encode.format = format == "flac" ? beatdown::Format::Flac : beatdown::Format::Mp3;
+        if (vbr >= 0) o.encode.vbr = vbr;
+        o.recursive = !no_recursive;
 
-    beatdown::platform::install_interrupt_handler(g_cancel);
-    beatdown::ConsoleReporter reporter(std::cout, o.quiet, o.verbose);
-    return beatdown::run(o, reporter, g_cancel);
+        beatdown::platform::install_interrupt_handler(g_cancel);
+        beatdown::ConsoleReporter reporter(std::cout, o.quiet, o.verbose);
+        return beatdown::run(o, reporter, g_cancel);
+    } catch (const std::exception& e) {
+        std::cerr << "beatdown: internal error: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "beatdown: internal error: unknown exception\n";
+        return 1;
+    }
 }

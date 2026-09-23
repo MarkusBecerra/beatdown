@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 #include "core/scheduler.hpp"

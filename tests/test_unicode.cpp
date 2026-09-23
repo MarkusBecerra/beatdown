@@ -11,7 +11,7 @@ TEST_CASE("utf8 <-> utf16 round-trips BMP and astral characters") {
 }
 
 TEST_CASE("utf16_to_utf8 honours a byte-order mark") {
-    std::u16string le = u"﻿abc";
+    std::u16string le = std::u16string{char16_t(0xFEFF), u'a', u'b', u'c'};
     REQUIRE(utf16_to_utf8(le) == "abc");
     std::u16string swapped = { char16_t(0xFFFE), char16_t(0x6100), char16_t(0x6200) }; // "ab" byte-swapped
     REQUIRE(utf16_to_utf8(swapped) == "ab");
