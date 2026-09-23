@@ -6,6 +6,28 @@
 
 namespace beatdown {
 
+namespace {
+int64_t read_frames(Decoder& in, int32_t* buf, int64_t frames) { return in.read_int(buf, frames); }
+int64_t read_frames(Decoder& in, float* buf, int64_t frames) { return in.read_float(buf, frames); }
+sf_count_t write_frames(SNDFILE* sf, const int32_t* buf, sf_count_t frames) { return sf_writef_int(sf, buf, frames); }
+sf_count_t write_frames(SNDFILE* sf, const float* buf, sf_count_t frames) { return sf_writef_float(sf, buf, frames); }
+
+// Copies every frame of `in` into `sf` as `Sample`. int32_t keeps integer PCM exact (16/24-bit
+// bit-exact, 32-bit truncated to 24); float sources must go through float, because libsndfile
+// doesn't scale float data on an integer read (it would round the ±1.0 samples to 0/±1 — silence).
+template <typename Sample>
+std::string copy_frames(Decoder& in, SNDFILE* sf, const std::atomic<bool>& cancel) {
+    const int64_t kFrames = 4096;
+    std::vector<Sample> buf(static_cast<size_t>(kFrames) * in.info().channels);
+    int64_t n;
+    while ((n = read_frames(in, buf.data(), kFrames)) > 0) {
+        if (cancel.load()) return "cancelled";
+        if (write_frames(sf, buf.data(), n) != n) return std::string("FLAC write failed: ") + sf_strerror(sf);
+    }
+    return "";
+}
+}  // namespace
+
 std::string FlacEncoder::encode(Decoder& in, const std::filesystem::path& out, const Tags& tags,
                                 const std::atomic<bool>& cancel, std::string* log) {
     const AudioInfo& a = in.info();
@@ -33,13 +55,8 @@ std::string FlacEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     set(SF_STR_COMMENT, tags.comment);
     if (log) *log += "flac: level 8, " + std::to_string(a.sample_rate) + " Hz, " + std::to_string(a.bits > 24 ? 24 : a.bits) + "-bit\n";
 
-    const int64_t kFrames = 4096;
-    std::vector<int32_t> buf(static_cast<size_t>(kFrames) * a.channels);
-    int64_t n;
-    while ((n = in.read_int(buf.data(), kFrames)) > 0) {
-        if (cancel.load()) return "cancelled";
-        if (sf_writef_int(sf, buf.data(), n) != n) return std::string("FLAC write failed: ") + sf_strerror(sf);
-    }
+    std::string e = a.is_float ? copy_frames<float>(in, sf, cancel) : copy_frames<int32_t>(in, sf, cancel);
+    if (!e.empty()) return e;
     sf_close(sf);
     closer.s = nullptr;
     return "";

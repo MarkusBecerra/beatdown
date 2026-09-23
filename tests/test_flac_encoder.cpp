@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <vector>
 #include "core/decoder.hpp"
 #include "core/encoder.hpp"
@@ -42,13 +44,34 @@ TEST_CASE("FlacEncoder round-trips 24-bit and 16-bit PCM bit-exactly") {
     }
 }
 
-TEST_CASE("FlacEncoder writes float and 32-bit sources as 24-bit") {
-    TempDir t;
-    REQUIRE(encode_flac(make_audio(t.path / "f.wav", {.subtype = SF_FORMAT_FLOAT}), t.path / "f.flac") == "");
+static std::vector<float> float_samples(const fs::path& f) {
     std::string err;
-    REQUIRE(Decoder::open(t.path / "f.flac", err)->info().bits == 24);
-    REQUIRE(encode_flac(make_audio(t.path / "i.wav", {.subtype = SF_FORMAT_PCM_32}), t.path / "i.flac") == "");
-    REQUIRE(Decoder::open(t.path / "i.flac", err)->info().bits == 24);
+    auto d = Decoder::open(f, err);
+    REQUIRE(d);
+    std::vector<float> all(static_cast<size_t>(d->info().frames) * d->info().channels);
+    REQUIRE(d->read_float(all.data(), d->info().frames) == d->info().frames);
+    return all;
+}
+
+// Decoded content, not just the header: a silent FLAC has the right bit depth and frame count too.
+TEST_CASE("FlacEncoder writes float and 32-bit sources as 24-bit with the source's content") {
+    TempDir t;
+    for (int sub : {SF_FORMAT_FLOAT, SF_FORMAT_PCM_32}) {
+        auto src = make_audio(t.path / (std::to_string(sub) + ".wav"), {.subtype = sub, .seconds = 0.5});
+        auto out = t.path / (std::to_string(sub) + ".flac");
+        REQUIRE(encode_flac(src, out) == "");
+        std::string err;
+        REQUIRE(Decoder::open(out, err)->info().bits == 24);
+        std::vector<float> want = float_samples(src), got = float_samples(out);
+        REQUIRE(got.size() == want.size());
+        float peak = 0.0f, worst = 0.0f;
+        for (size_t i = 0; i < want.size(); ++i) {
+            peak = std::max(peak, std::fabs(want[i]));
+            worst = std::max(worst, std::fabs(got[i] - want[i]));
+        }
+        REQUIRE(peak > 0.49f);                     // the fixture is a 0.5-amplitude sine, not silence
+        REQUIRE(worst <= 2.0f / 8388608.0f);       // about one 24-bit LSB plus rounding
+    }
 }
 
 TEST_CASE("FlacEncoder writes tags as Vorbis comments and keeps 96 kHz") {
