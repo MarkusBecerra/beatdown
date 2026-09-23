@@ -11,29 +11,55 @@ namespace fs = std::filesystem;
 
 namespace beatdown {
 
-// R25: create only the last path component; a missing parent means an unmounted drive or a typo.
-static bool prepare_destination(const Options& o, Reporter& rep) {
+// Finding 3 (fix round 1): the directory that stands in for the destination when checking free
+// space or validating R25's parent rule — the destination itself if it's already a directory,
+// otherwise its parent, trailing-slash aware (a destination given as ".../NewRelease/" has no
+// filename component, so parent_path() once lands back on the non-existent destination itself;
+// applying it twice strips both the phantom empty element and "NewRelease"). Shared by both
+// checks so they always agree on which directory actually exists today.
+static fs::path existing_destination_dir(const fs::path& destination, std::error_code& ec) {
+    if (fs::is_directory(destination, ec)) return destination;
+    return destination.has_filename() ? destination.parent_path() : destination.parent_path().parent_path();
+}
+
+// R25: only the last path component may be created; a missing parent means an unmounted drive or
+// a typo. Finding 3: validation no longer creates anything — creation is deferred until after the
+// space check passes, so a refused (or dry) run never leaves a stray empty folder behind.
+static bool validate_destination(const Options& o, Reporter& rep) {
     std::error_code ec;
     if (fs::is_directory(o.destination, ec)) return true;
     if (fs::exists(o.destination, ec)) { rep.error("destination is not a directory: " + path_to_utf8(o.destination)); return false; }
-    fs::path parent = o.destination.has_filename() ? o.destination.parent_path() : o.destination.parent_path().parent_path();
+    fs::path parent = existing_destination_dir(o.destination, ec);
     if (!fs::is_directory(parent, ec)) {
         rep.error("cannot create " + path_to_utf8(o.destination) + ": parent folder " + path_to_utf8(parent) + " does not exist (drive not mounted, or a typo?)");
         return false;
     }
-    if (o.dry_run) return true;
+    return true;
+}
+
+static bool create_destination(const Options& o, Reporter& rep) {
+    std::error_code ec;
+    if (fs::is_directory(o.destination, ec)) return true;
     fs::create_directory(o.destination, ec);
     if (ec) { rep.error("cannot create " + path_to_utf8(o.destination) + ": " + ec.message()); return false; }
     return true;
 }
 
-int run(const Options& o, Reporter& rep, std::atomic<bool>& cancel, ConvertFn convert) {
+int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, ConvertFn convert) {
     auto t0 = std::chrono::steady_clock::now();
+    // Finding 2 (fix round 1): work on an absolutized copy. A bare relative destination like
+    // "Release" has an empty parent_path(), which validate_destination would otherwise mistake
+    // for a missing/unmounted parent and refuse with exit 2.
+    Options o = options;
+    std::error_code abs_ec;
+    o.source = fs::absolute(o.source, abs_ec);
+    o.destination = fs::absolute(o.destination, abs_ec);
+
     Summary s;
     std::string err;
     std::error_code ec;
     if (!fs::exists(o.source, ec)) { rep.error("source does not exist: " + path_to_utf8(o.source)); return 2; }
-    if (!prepare_destination(o, rep)) return 2;
+    if (!validate_destination(o, rep)) return 2;
 
     Plan plan = scan(o, err);
     if (!err.empty()) { rep.error(err); return 2; }
@@ -52,16 +78,39 @@ int run(const Options& o, Reporter& rep, std::atomic<bool>& cancel, ConvertFn co
         if (auto d = Decoder::open(plan.to_convert[i].source, e)) estimates[i] = estimate_output_bytes(d->info(), o.encode);
         estimate_total += estimates[i];
     }
-    int64_t avail = o.space_override_available ? *o.space_override_available
-        : available_bytes(o.dry_run && !fs::is_directory(o.destination, ec) ? o.destination.parent_path() : o.destination, err);
-    SpaceCheck sc = check_space(estimate_total, avail);
-    rep.space(sc, o.dry_run);
-    if (!sc.ok && !o.dry_run) {
-        rep.error("refusing to start: not enough free space on the destination");
-        s.space_refused = true;
-        s.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
-        rep.summary(s);
-        return s.exit_code();
+
+    // Finding 3: measure the directory that actually exists today (see existing_destination_dir);
+    // the destination itself is deliberately not created yet, so this must never be it directly
+    // unless it already existed before this run.
+    fs::path space_dir = existing_destination_dir(o.destination, ec);
+    bool space_known = true;
+    int64_t avail = 0;
+    SpaceCheck sc{};
+    if (o.space_override_available) {
+        avail = *o.space_override_available;
+    } else {
+        std::string space_err;
+        avail = available_bytes(space_dir, space_err);
+        if (!space_err.empty()) {
+            // Can't tell either way (e.g. a race removed the directory just validated above);
+            // warn and proceed rather than block the whole batch on an unmeasurable check.
+            rep.error("cannot check free space on " + path_to_utf8(space_dir) + ": " + space_err);
+            space_known = false;
+        }
+    }
+    if (space_known) {
+        sc = check_space(estimate_total, avail);
+        rep.space(sc, o.dry_run);
+        if (!sc.ok) {
+            // R28: refuse before writing anything, including creating the destination folder
+            // itself (still not created at this point unless it already existed) — applies to a
+            // dry run too, since a dry run previews exactly what the real run would do.
+            rep.error("refusing to start: not enough free space on the destination");
+            s.space_refused = true;
+            s.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+            rep.summary(s);
+            return s.exit_code();
+        }
     }
     if (o.dry_run) {
         // A2: report the projection per job, in plan order, and never call file() for a dry run.
@@ -72,6 +121,8 @@ int run(const Options& o, Reporter& rep, std::atomic<bool>& cancel, ConvertFn co
         rep.summary(s);
         return 0;
     }
+
+    if (!create_destination(o, rep)) return 2;
 
     // A disk-full failure stops the batch (R28) by raising the same flag Ctrl-C uses; remember which it was.
     std::atomic<bool> disk_full{false};

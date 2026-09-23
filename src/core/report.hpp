@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -54,6 +55,7 @@ private:
     std::ostream& out_;
     bool quiet_, verbose_;
     bool dry_run_ = false;  // learned from plan(); skipped() needs it since its signature carries no Options
+    std::filesystem::path source_root_;  // learned from plan(); shortens failure paths in summary()
 };
 
 }  // namespace beatdown

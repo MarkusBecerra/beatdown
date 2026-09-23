@@ -83,3 +83,66 @@ TEST_CASE("ConsoleReporter prints a disk-full early stop in the summary") {
     r.summary(s);
     REQUIRE_THAT(out.str(), ContainsSubstring("Stopped early: destination disk is full — 5 not converted"));
 }
+
+// Finding 1 (fix round 1): R14 requires every failure be reported with its reason; a 500-file
+// batch shouldn't force scrolling back through per-file lines to find which ones failed, so
+// summary() recaps them, with a path relative to the source root learned from plan().
+TEST_CASE("ConsoleReporter recaps every failure at the end of the summary, relative to the source root") {
+    Options o; o.source = "/audio-src";
+    Plan p;
+    std::ostringstream out;
+    ConsoleReporter r(out, false, false);
+    r.plan(p, 2, o);
+
+    FileResult bad; bad.job.source = "/audio-src/sub/bad.wav"; bad.outcome = Outcome::Failed; bad.error = "RIFF header truncated";
+    Summary s; s.failed = 1; s.failures = {bad};
+    r.summary(s);
+
+    std::string text = out.str();
+    REQUIRE_THAT(text, ContainsSubstring("Failed:"));
+    REQUIRE_THAT(text, ContainsSubstring("✗ sub/bad.wav    RIFF header truncated"));
+}
+
+// Finding 1: the recap is printed in --quiet too (R20: "--quiet prints only the summary and
+// failures") since summary() as a whole was never gated on quiet_.
+TEST_CASE("ConsoleReporter prints the failure recap under --quiet") {
+    Options o; o.source = "/audio-src";
+    Plan p;
+    std::ostringstream out;
+    ConsoleReporter r(out, true, false);
+    r.plan(p, 1, o);
+
+    FileResult bad; bad.job.source = "/audio-src/bad.wav"; bad.outcome = Outcome::Failed; bad.error = "boom";
+    Summary s; s.failed = 1; s.failures = {bad};
+    r.summary(s);
+    REQUIRE_THAT(out.str(), ContainsSubstring("Failed:"));
+    REQUIRE_THAT(out.str(), ContainsSubstring("✗ bad.wav    boom"));
+}
+
+// Finding 4 (fix round 1): skipped() must respect --quiet like every other per-item line; it
+// previously ignored quiet_ entirely, so --quiet --dry-run printed skip lines while
+// would_convert() (correctly) stayed silent under quiet — the reverse of R20.
+TEST_CASE("ConsoleReporter gates the skip line on quiet and verbose/dry-run correctly") {
+    Job j; j.source = "/src/a.wav"; j.note = "output exists";
+    Plan p;
+    Options dry; dry.dry_run = true;
+    Options not_dry;   // dry_run = false (default)
+
+    std::ostringstream quiet_dry;
+    ConsoleReporter r1(quiet_dry, true, false);
+    r1.plan(p, 1, dry);
+    r1.skipped(j);
+    REQUIRE_THAT(quiet_dry.str(), !ContainsSubstring("skipped:"));
+
+    std::ostringstream nonquiet_dry;
+    ConsoleReporter r2(nonquiet_dry, false, false);
+    r2.plan(p, 1, dry);
+    r2.skipped(j);
+    REQUIRE_THAT(nonquiet_dry.str(), ContainsSubstring("= a.wav    skipped: output exists"));
+
+    std::ostringstream plain;
+    ConsoleReporter r3(plain, false, false);   // not quiet, not verbose
+    r3.plan(p, 1, not_dry);
+    r3.skipped(j);
+    REQUIRE_THAT(plain.str(), !ContainsSubstring("skipped:"));
+}

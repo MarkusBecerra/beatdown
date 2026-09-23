@@ -23,6 +23,15 @@ struct RecordingReporter : Reporter {
 
 static Options opts(const fs::path& src, const fs::path& dst) { Options o; o.source = src; o.destination = dst; o.jobs = 2; return o; }
 
+// Finding 2 (fix round 1): restores the previous current directory even if a REQUIRE fails and
+// unwinds the test case (Catch2 aborts a failed test via a normal C++ exception, so this
+// destructor still runs).
+struct CurrentDirGuard {
+    fs::path previous;
+    explicit CurrentDirGuard(const fs::path& to) : previous(fs::current_path()) { fs::current_path(to); }
+    ~CurrentDirGuard() { std::error_code ec; fs::current_path(previous, ec); }
+};
+
 TEST_CASE("run converts, skips, ignores and fails the right files and exits 1 on a failure") {
     TempDir t;
     make_audio(t.path / "src/a.wav", {.seconds = 0.2});
@@ -73,6 +82,19 @@ TEST_CASE("run creates the destination's last component only") {
     REQUIRE(rep2.errors.size() == 1);
 }
 
+// Finding 2 (fix round 1): a bare relative destination like "Release" has an empty
+// parent_path(), which R25's validation would otherwise mistake for a missing/unmounted parent
+// and refuse with exit 2. The runner must resolve both source and destination against the
+// current directory before checking anything.
+TEST_CASE("run resolves a relative source and destination against the current directory") {
+    TempDir t;
+    make_audio(t.path / "src/a.wav", {.seconds = 0.1});
+    CurrentDirGuard cwd(t.path);
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    REQUIRE(run(opts("src", "Release"), rep, cancel) == 0);
+    REQUIRE(fs::exists(t.path / "Release" / "a.mp3"));
+}
+
 TEST_CASE("run --dry-run writes nothing and reports the projection") {
     TempDir t;
     make_audio(t.path / "src/a.wav", {.seconds = 0.5});
@@ -91,6 +113,28 @@ TEST_CASE("run --dry-run writes nothing and reports the projection") {
     REQUIRE(rep.would_converts[0].second > 0);
 }
 
+// Finding 3(a) (fix round 1): a new destination given with a trailing slash has no filename
+// component, so a naive single parent_path() lands back on the non-existent destination itself;
+// the space check must measure its real parent (t.path) instead, which exists and has plenty of
+// room for one tiny file.
+TEST_CASE("run --dry-run measures the parent of a new trailing-slash destination, not the destination itself") {
+    TempDir t;
+    make_audio(t.path / "src/a.wav", {.seconds = 0.2});
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    Options o = opts(t.path / "src", fs::path((t.path / "NewRelease").string() + "/"));
+    o.dry_run = true;
+    REQUIRE(run(o, rep, cancel) == 0);
+    // Positive evidence that available_bytes actually measured a real, existing directory (t.path)
+    // rather than the space check being silently skipped: a default-constructed SpaceCheck (never
+    // set by rep.space()) also has ok == true and available == 0, so checking .ok alone would not
+    // catch the space check having been skipped entirely, e.g. by mis-resolving the non-existent
+    // "NewRelease" itself and treating that as an unmeasurable directory.
+    REQUIRE(rep.space_seen.available > 0);
+    REQUIRE(rep.space_seen.ok);
+    REQUIRE(rep.errors.empty());
+    REQUIRE_FALSE(fs::exists(t.path / "NewRelease"));
+}
+
 TEST_CASE("run refuses when the free-space estimate is not met") {
     TempDir t;
     make_audio(t.path / "src/a.wav", {.seconds = 0.5});
@@ -100,7 +144,24 @@ TEST_CASE("run refuses when the free-space estimate is not met") {
     o.space_override_available = 10;   // test hook: pretend only 10 bytes are free
     REQUIRE(run(o, rep, cancel) == 1);
     REQUIRE_FALSE(fs::exists(t.path / "out/a.flac"));
+    // Finding 3(b): R28 refuses before writing anything, including creating the destination
+    // folder itself — the old ordering created it before checking space.
+    REQUIRE_FALSE(fs::exists(t.path / "out"));
     REQUIRE_FALSE(rep.errors.empty());
+}
+
+// Finding 3(c): a dry run previews exactly what the real run would do, including refusing for
+// lack of space — it must no longer exit 0 while reporting "Not enough space".
+TEST_CASE("run --dry-run also refuses when the free-space estimate is not met") {
+    TempDir t;
+    make_audio(t.path / "src/a.wav", {.seconds = 0.5});
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    Options o = opts(t.path / "src", t.path / "out");
+    o.dry_run = true;
+    o.space_override_available = 10;   // test hook: pretend only 10 bytes are free
+    REQUIRE(run(o, rep, cancel) == 1);
+    REQUIRE_FALSE(rep.space_seen.ok);
+    REQUIRE_FALSE(fs::exists(t.path / "out"));
 }
 
 TEST_CASE("run stops launching after a disk-full failure and after cancellation") {

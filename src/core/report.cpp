@@ -1,11 +1,28 @@
 #include "core/report.hpp"
 #include <cstdio>
 #include <mutex>
+#include <system_error>
 #include "core/unicode.hpp"
+
+namespace fs = std::filesystem;
 
 namespace beatdown {
 
 static std::string one_decimal(double v) { char b[32]; std::snprintf(b, sizeof b, "%.1f", v); return b; }
+
+// Finding 1 (fix round 1): the failure recap in summary() shows a path relative to the source
+// root (set by plan()) instead of a bare filename, since a 500-file batch can have several
+// identically-named files under different sub-folders. Falls back to the filename when there's
+// no usable root (e.g. summary() called without a preceding plan()) or fs::relative can't relate
+// the two paths (e.g. different drives on Windows).
+static std::string relative_to_root(const fs::path& source, const fs::path& root) {
+    if (!root.empty()) {
+        std::error_code ec;
+        fs::path rel = fs::relative(source, root, ec);
+        if (!ec && !rel.empty()) return path_to_utf8(rel);
+    }
+    return path_to_utf8(source.filename());
+}
 
 std::string format_size(int64_t bytes) {
     double b = static_cast<double>(bytes);
@@ -23,6 +40,7 @@ static std::mutex g_out;
 
 void ConsoleReporter::plan(const Plan& p, int jobs, const Options& o) {
     dry_run_ = o.dry_run;
+    source_root_ = o.source;
     if (quiet_) return;
     std::lock_guard<std::mutex> l(g_out);
     out_ << "Found " << (p.to_convert.size() + p.skipped.size()) << " audio files, " << p.skipped.size()
@@ -55,9 +73,11 @@ void ConsoleReporter::file(const FileResult& r) {
 }
 
 void ConsoleReporter::skipped(const Job& j) {
-    // A2: unlike file()/would_convert(), --quiet is not checked here: dry-run output (R15) must
-    // list what would be skipped regardless of --quiet, so the gate is verbose OR dry-run only.
-    if (!verbose_ && !dry_run_) return;
+    // Finding 4 (fix round 1): --quiet must gate this like every other per-item line (R20:
+    // "--quiet prints only the summary and failures") — the previous version ignored quiet_
+    // entirely, so --quiet --dry-run printed skip lines while would_convert() (correctly) stayed
+    // silent under quiet, the reverse of what R20 asks for.
+    if (quiet_ || (!verbose_ && !dry_run_)) return;
     std::lock_guard<std::mutex> l(g_out);
     out_ << "  = " << path_to_utf8(j.source.filename()) << "    skipped: " << j.note << "\n";
 }
@@ -83,6 +103,14 @@ void ConsoleReporter::summary(const Summary& s) {
             long long pct = static_cast<long long>(100.0 * (static_cast<double>(s.bytes_out) / static_cast<double>(s.bytes_in)) - 100.0);
             out_ << "Size " << format_size(s.bytes_in) << " → " << format_size(s.bytes_out) << " (" << (pct < 0 ? "−" : "+") << (pct < 0 ? -pct : pct) << "%)   ";
         }
+    }
+    // Finding 1 (fix round 1): recap every failure with its reason so a long batch doesn't force
+    // scrolling back through hundreds of per-file lines to find the handful that failed. Printed
+    // in --quiet too (R20: "--quiet prints only the summary and failures") since summary() as a
+    // whole is never gated on quiet_.
+    if (!s.failures.empty()) {
+        out_ << "\nFailed:\n";
+        for (const auto& r : s.failures) out_ << "  ✗ " << relative_to_root(r.job.source, source_root_) << "    " << r.error << "\n";
     }
     out_ << "Elapsed " << format_clock(s.elapsed) << "\n";
 }
