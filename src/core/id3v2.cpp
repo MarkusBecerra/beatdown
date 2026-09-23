@@ -48,8 +48,8 @@ bool parse_id3v2(std::string_view bytes, Tags& out, size_t* tag_size) {
     unsigned flags = p[5];
     if (major != 3 && major != 4) return false;
     size_t size = syncsafe(p + 6);
-    size_t total = 10 + size + ((flags & 0x10) ? 10 : 0);
-    if (bytes.size() < 10 + size) return false;
+    size_t total = 10 + size + ((major == 4 && (flags & 0x10)) ? 10 : 0);
+    if (bytes.size() < total) return false;
     if (tag_size) *tag_size = total;
     if (flags & 0x80) return true;  // unsynchronised: rare, not produced by any DAW we care about; tag counts as present but unread
 

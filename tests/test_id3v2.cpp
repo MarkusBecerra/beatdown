@@ -56,3 +56,29 @@ TEST_CASE("read_wav_id3_chunk finds an id3 chunk appended to a WAV") {
     REQUIRE(d);
     REQUIRE(d->tags().artist == "Artist");
 }
+
+TEST_CASE("parse_id3v2 validates footer when v2.4 footer flag is set") {
+    // v2.4 tag with footer flag set and footer appended
+    std::string bytes = build_id3v2_for_test(sample(), 3);
+    bytes[3] = 4;  // change major version to 4
+    bytes[5] |= 0x10;  // set footer flag
+    // Append 10-byte footer: "3DI" + 7 header bytes (version, flags, size)
+    bytes += "3DI";
+    bytes.push_back(4); bytes.push_back(0); bytes.push_back(0);  // version 4.0
+    bytes.push_back(bytes[5]); bytes.push_back(bytes[6]); bytes.push_back(bytes[7]); bytes.push_back(bytes[8]);  // size bytes
+
+    Tags t;
+    size_t tag_size = 0;
+    REQUIRE(parse_id3v2(bytes, t, &tag_size));
+    REQUIRE(tag_size == bytes.size());
+}
+
+TEST_CASE("parse_id3v2 rejects v2.4 footer flag without footer bytes") {
+    // v2.4 tag with footer flag set but no footer appended
+    std::string bytes = build_id3v2_for_test(sample(), 3);
+    bytes[3] = 4;  // change major version to 4
+    bytes[5] |= 0x10;  // set footer flag (but don't append footer)
+
+    Tags t;
+    REQUIRE_FALSE(parse_id3v2(bytes, t));
+}
