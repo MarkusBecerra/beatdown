@@ -75,6 +75,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_converter.cpp
     tests/test_report.cpp
     tests/test_runner.cpp
+    tests/test_cli.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_include_directories(beatdown_tests PRIVATE tests)
