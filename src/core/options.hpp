@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -27,6 +28,7 @@ struct Options {
     bool dry_run = false;       // R15
     bool quiet = false;         // R20
     bool verbose = false;       // R20
+    std::optional<int64_t> space_override_available;  // tests only: pretend this many bytes are free
 
     int effective_jobs() const {
         if (jobs > 0) return jobs;
