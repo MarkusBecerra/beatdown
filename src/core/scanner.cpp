@@ -33,10 +33,11 @@ std::string path_key(const fs::path& p) {
 
 using FallbackByParent = std::unordered_map<std::string, std::vector<fs::path>>;   // canonical parent dir (UTF-8) -> sources there whose FileId couldn't be read
 
-// True if `output` already exists and is filesystem-identical to one of the audio inputs, however
-// that input's name happens to be spelled. Catches what path_key's ASCII-only case fold can't:
-// NFC/NFD normalization twins, non-ASCII case twins (APFS folds both), and a destination that
-// reaches a source folder by another path, such as a symlink.
+// If `output` already exists, returns the note to skip the job with; "" if there's no overwrite
+// risk (including: output doesn't exist yet, which the caller checks other rules for). Catches
+// what path_key's ASCII-only case fold can't: NFC/NFD normalization twins, non-ASCII case twins
+// (APFS folds both), and a destination that reaches a source folder by another path, such as a
+// symlink — however the colliding input's name happens to be spelled.
 //
 // Compares file identity (device+inode / volume+file-index), not size: a prior version of this
 // function prefiltered by size, but size is content, and content can change mid-scan (a source
@@ -47,23 +48,32 @@ using FallbackByParent = std::unordered_map<std::string, std::vector<fs::path>>;
 // output already exists): the common "no match" case is one file_id() call plus a hash lookup,
 // not a linear fs::equivalent scan over every source (see 4635993's finding).
 //
-// A source whose id couldn't be read at scan time (rare: permission trouble, an exotic
-// filesystem) can't be placed in `source_ids`, so it goes in `fallback_by_parent` instead, and is
-// checked with fs::equivalent instead — the same cost `source_ids` exists to avoid, but only for
-// that source, not every source in its directory.
-bool overwrites_a_source(const fs::path& output, const std::unordered_set<platform::FileId>& source_ids,
-                          const FallbackByParent& fallback_by_parent) {
+// Fails safe rather than guessing, in two places a plain bool result couldn't distinguish:
+//  - `output`'s own identity can't be read even though it exists (a delete-and-recreate race, or
+//    a transient metadata failure on a network/cloud volume): the job is skipped outright, with
+//    its own note, rather than falling through as if there were no risk. Not retried with
+//    fs::equivalent — a stat that just failed is likely to fail again.
+//  - A source whose own id couldn't be read at scan time (rare: permission trouble, an exotic
+//    filesystem) goes in `fallback_by_parent` instead of `source_ids`, checked with fs::equivalent
+//    against any existing output in the same directory; if that check itself can't tell (fails
+//    and sets its error_code), that's treated as a match too, not as "no risk".
+std::string overwrites_a_source(const fs::path& output, const std::unordered_set<platform::FileId>& source_ids,
+                                 const FallbackByParent& fallback_by_parent) {
     std::error_code ec;
-    if (!fs::exists(output, ec)) return false;
+    if (!fs::exists(output, ec)) return "";
     std::optional<platform::FileId> out_id = platform::file_id(output);
-    if (out_id && source_ids.count(*out_id)) return true;
-    if (out_id && fallback_by_parent.empty()) return false;   // every source's id is in source_ids; no match there
+    if (!out_id) return "cannot check whether the output is a source file";
+    if (source_ids.count(*out_id)) return "output would overwrite a source file";
+    if (fallback_by_parent.empty()) return "";   // every source's id is in source_ids; no match there
+
     fs::path parent = fs::weakly_canonical(output.parent_path(), ec);
     auto it = fallback_by_parent.find(path_to_utf8(parent));
-    if (it == fallback_by_parent.end()) return false;
-    for (const fs::path& s : it->second)
-        if (fs::equivalent(s, output, ec)) return true;
-    return false;
+    if (it == fallback_by_parent.end()) return "";
+    for (const fs::path& s : it->second) {
+        bool equivalent = fs::equivalent(s, output, ec);
+        if (equivalent || ec) return "output would overwrite a source file";
+    }
+    return "";
 }
 
 // Pairs an audio input with its output path; anything else is only counted.
@@ -105,8 +115,10 @@ void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
         std::string out = path_key(j.output);
         if (out == path_key(j.source) || (fs::exists(j.output, ec) && fs::equivalent(j.source, j.output, ec)))
             j.note = "output would be the source file";
-        else if (sources.count(out) || overwrites_a_source(j.output, source_ids, fallback_by_parent))
+        else if (sources.count(out))
             j.note = "output would overwrite a source file";
+        else if (std::string overwrite_note = overwrites_a_source(j.output, source_ids, fallback_by_parent); !overwrite_note.empty())
+            j.note = overwrite_note;
         else if (auto [it, fresh] = claimed.emplace(out, path_to_utf8(j.source.filename())); !fresh)
             j.note = "same output as " + it->second;
         else if (!opts.overwrite && fs::exists(j.output, ec))
