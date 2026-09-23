@@ -1,7 +1,9 @@
 #include "core/converter.hpp"
 #include <cerrno>
+#include <limits>
 #include <system_error>
 #include "core/encoder.hpp"
+#include "core/space.hpp"
 #include "core/unicode.hpp"
 #include "core/verifier.hpp"
 
@@ -10,7 +12,7 @@ namespace fs = std::filesystem;
 namespace beatdown {
 
 fs::path temp_path_for(const fs::path& output) {
-    return output.parent_path() / fs::path(".beatdown-" + path_to_utf8(output.filename()) + ".part");
+    return output.parent_path() / path_from_utf8(".beatdown-" + path_to_utf8(output.filename()) + ".part");
 }
 
 Tags resolve_tags(const Decoder& d, const Options& o) {
@@ -21,9 +23,10 @@ Tags resolve_tags(const Decoder& d, const Options& o) {
     return merge_tags(t, derived);
 }
 
-static bool looks_like_disk_full(const std::string& err) {
-    return err.find("No space left") != std::string::npos || err.find("not enough space") != std::string::npos
-        || err.find("There is not enough space") != std::string::npos;
+bool looks_like_disk_full(const std::string& error, int64_t available, int64_t estimated) {
+    if (available < estimated) return true;
+    return error.find("No space left") != std::string::npos || error.find("not enough space") != std::string::npos
+        || error.find("There is not enough space") != std::string::npos;
 }
 
 FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>& cancel) {
@@ -60,16 +63,23 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
         // A write that fails for lack of space is reported so the runner can stop the batch (R28).
         std::error_code space_ec;
         auto sp = fs::space(job.output.parent_path(), space_ec);
-        if (!space_ec && sp.available < (64u << 20)) r.disk_full = true;
-        if (looks_like_disk_full(e)) r.disk_full = true;
+        int64_t estimated = estimate_output_bytes(dec->info(), o.encode);
+        int64_t available = space_ec ? std::numeric_limits<int64_t>::max() : static_cast<int64_t>(sp.available);
+        r.disk_full = looks_like_disk_full(e, available, estimated);
         return done(Outcome::Failed, e);
     }
 
     std::string v = verify_output(tmp, o.encode, dec->info());
     if (!v.empty()) return done(Outcome::Failed, "verification failed: " + v);
 
-    fs::last_write_time(tmp, fs::last_write_time(job.source, ec), ec);
-    if (o.overwrite) fs::remove(job.output, ec);
+    auto src_mtime = fs::last_write_time(job.source, ec);
+    if (ec) return done(Outcome::Failed, "cannot read source modification time: " + ec.message());
+    fs::last_write_time(tmp, src_mtime, ec);
+    if (ec) return done(Outcome::Failed, "cannot set modification time: " + ec.message());
+    if (o.overwrite) {
+        fs::remove(job.output, ec);
+        if (ec) return done(Outcome::Failed, "cannot replace existing output: " + ec.message());
+    }
     fs::rename(tmp, job.output, ec);
     if (ec) return done(Outcome::Failed, "cannot rename to " + path_to_utf8(job.output) + ": " + ec.message());
     cleanup.armed = false;
