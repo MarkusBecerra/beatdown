@@ -30,21 +30,51 @@ std::string path_key(const fs::path& p) {
     return ascii_lower(std::string(reinterpret_cast<const char*>(g.data()), g.size()));
 }
 
-using SourcesByParent = std::unordered_map<std::string, std::vector<fs::path>>;   // canonical parent dir (UTF-8) -> audio inputs there
+// Sources in one canonical parent directory, indexed by size: two names for one file always
+// report the same size, so an output whose size doesn't match any source in its directory can't
+// be equivalent to one, without calling fs::equivalent at all. A source whose size couldn't be
+// read at scan time (negative) goes in `unknown_size` instead, since a size comparison can't rule
+// those out; they're always checked.
+struct SourceBucket {
+    std::unordered_map<int64_t, std::vector<fs::path>> by_size;
+    std::vector<fs::path> unknown_size;
+};
+using SourcesByParent = std::unordered_map<std::string, SourceBucket>;   // canonical parent dir (UTF-8) -> sources there
 
 // True if `output` already exists and is filesystem-identical to one of the audio inputs, however
 // that input's name happens to be spelled. Catches what path_key's ASCII-only case fold can't:
 // NFC/NFD normalization twins, non-ASCII case twins (APFS folds both), and a destination that
 // reaches a source folder by another path, such as a symlink.
+//
+// A flat folder of N files re-scanned in place (all N outputs already exist) would otherwise cost
+// O(N^2) fs::equivalent calls: every job's output falls into the one bucket holding all N sources,
+// and (since it usually isn't equivalent to any of them) each call scans the whole bucket. The
+// size prefilter below makes the common "no match" case one fs::file_size call plus a hash lookup.
 bool overwrites_a_source(const fs::path& output, const SourcesByParent& sources_by_parent) {
     std::error_code ec;
     if (!fs::exists(output, ec)) return false;
     fs::path parent = fs::weakly_canonical(output.parent_path(), ec);
     auto it = sources_by_parent.find(path_to_utf8(parent));
     if (it == sources_by_parent.end()) return false;
-    for (const fs::path& s : it->second)
-        if (fs::equivalent(s, output, ec)) return true;
-    return false;
+    const SourceBucket& bucket = it->second;
+
+    auto any_equivalent = [&](const std::vector<fs::path>& candidates) {
+        for (const fs::path& s : candidates)
+            if (fs::equivalent(s, output, ec)) return true;
+        return false;
+    };
+
+    std::error_code size_ec;
+    auto out_bytes = static_cast<int64_t>(fs::file_size(output, size_ec));
+    if (size_ec) {
+        // Couldn't size the output: fall back to checking every source in the directory.
+        for (const auto& [size, paths] : bucket.by_size)
+            if (any_equivalent(paths)) return true;
+        return any_equivalent(bucket.unknown_size);
+    }
+    auto sized = bucket.by_size.find(out_bytes);
+    if (sized != bucket.by_size.end() && any_equivalent(sized->second)) return true;
+    return any_equivalent(bucket.unknown_size);
 }
 
 // Pairs an audio input with its output path; anything else is only counted.
@@ -68,12 +98,14 @@ void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts,
 // became of that input, since that would replace a source file.
 void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
     std::unordered_set<std::string> sources;   // path_key of every audio input
-    SourcesByParent sources_by_parent;         // canonical parent dir -> audio inputs there
+    SourcesByParent sources_by_parent;         // canonical parent dir -> audio inputs there, by size
     for (const Job& j : jobs) {
         sources.insert(path_key(j.source));
         std::error_code ec;
         fs::path parent = fs::weakly_canonical(j.source.parent_path(), ec);
-        sources_by_parent[path_to_utf8(parent)].push_back(j.source);
+        SourceBucket& bucket = sources_by_parent[path_to_utf8(parent)];
+        if (j.source_bytes < 0) bucket.unknown_size.push_back(j.source);
+        else bucket.by_size[j.source_bytes].push_back(j.source);
     }
     std::unordered_map<std::string, std::string> claimed;   // output key -> filename of the source that keeps it
     for (Job& j : jobs) {

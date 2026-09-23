@@ -258,6 +258,43 @@ TEST_CASE("run never lets an output overwrite a source file reached under a diff
     }
 }
 
+// Fix round 1 (quadratic-cost finding): overwrites_a_source prefilters each canonical-parent
+// bucket by file size before calling fs::equivalent, so an output whose size doesn't match a
+// candidate never triggers the (more expensive) identity check against it. This must not cost a
+// genuine match: reuses the NFC/NFD "Café" twin pair alongside a few extra same-folder WAVs of
+// clearly different lengths, which land in other size buckets and must be skipped over, not let
+// the real match slip through.
+TEST_CASE("run's overwrite check still finds a filesystem-equal name among differently sized siblings") {
+    TempDir t;
+    fs::path flac_path = t.path / "src" / path_from_utf8("Cafe\xCC\x81.flac");   // NFD "Café"
+    make_audio(flac_path, {.container = SF_FORMAT_FLAC, .subtype = SF_FORMAT_PCM_16, .seconds = 2.0});
+    fs::path wav_source = t.path / "src" / path_from_utf8("Caf\xC3\xA9.wav");    // NFC "Café"
+    make_audio(wav_source, {.seconds = 1.0});
+    // Extra same-folder sources with clearly different lengths (so clearly different byte sizes),
+    // populating other size buckets in the same canonical-parent bucket as the twin pair above.
+    make_audio(t.path / "src/other1.wav", {.seconds = 0.3});
+    make_audio(t.path / "src/other2.wav", {.seconds = 0.7});
+    make_audio(t.path / "src/other3.wav", {.seconds = 1.5});
+    std::string flac_before = read_file(flac_path);
+
+    RecordingReporter rep; std::atomic<bool> cancel{false};
+    Options o = opts(t.path / "src", t.path / "src");
+    o.encode.format = Format::Flac; o.overwrite = true;
+    run(o, rep, cancel);
+
+    // Unconditional: whatever the filesystem's semantics, the pre-existing FLAC is untouched.
+    REQUIRE(read_file(flac_path) == flac_before);
+
+    fs::path wav_output = t.path / "src" / path_from_utf8("Caf\xC3\xA9.flac");
+    std::error_code ec;
+    if (fs::equivalent(wav_output, flac_path, ec)) {
+        auto it = std::find_if(rep.skips.begin(), rep.skips.end(),
+                                [&](const Job& j) { return j.source == wav_source; });
+        REQUIRE(it != rep.skips.end());
+        REQUIRE(it->note == "output would overwrite a source file");
+    }
+}
+
 TEST_CASE("run reports a missing source as a usage error") {
     TempDir t;
     RecordingReporter rep; std::atomic<bool> cancel{false};
