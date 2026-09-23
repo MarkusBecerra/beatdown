@@ -34,6 +34,7 @@ add_library(beatdown_core STATIC
   src/core/mp3_encoder.cpp
   src/core/flac_encoder.cpp
   src/core/verifier.cpp
+  src/core/space.cpp
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
@@ -65,6 +66,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_mp3_encoder.cpp
     tests/test_flac_encoder.cpp
     tests/test_verifier.cpp
+    tests/test_space.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_include_directories(beatdown_tests PRIVATE tests)
