@@ -2,6 +2,7 @@
 #include <sndfile.h>
 #include "core/platform/platform.hpp"
 #include "core/unicode.hpp"
+#include "core/id3v2.hpp"
 
 namespace beatdown {
 
@@ -51,6 +52,8 @@ std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::s
     d->tags_.track = str(sf, SF_STR_TRACKNUMBER);
     d->tags_.genre = str(sf, SF_STR_GENRE);
     d->tags_.comment = str(sf, SF_STR_COMMENT);
+    if ((info.format & SF_FORMAT_TYPEMASK) == SF_FORMAT_WAV || (info.format & SF_FORMAT_TYPEMASK) == SF_FORMAT_WAVEX)
+        d->tags_ = merge_tags(read_wav_id3_chunk(path), d->tags_);   // id3 chunk wins: it is the Unicode-capable one
     return d;
 }
 

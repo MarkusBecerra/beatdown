@@ -27,6 +27,7 @@ add_library(beatdown_core STATIC
   src/core/tags.cpp
   src/core/unicode.cpp
   src/core/decoder.cpp
+  src/core/id3v2.cpp
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
@@ -52,6 +53,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_unicode.cpp
     tests/fixtures.cpp
     tests/test_decoder.cpp
+    tests/test_id3v2.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_include_directories(beatdown_tests PRIVATE tests)
