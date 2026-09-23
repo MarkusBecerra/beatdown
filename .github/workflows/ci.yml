@@ -1,0 +1,59 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bootstrap: ./external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          - os: macos-latest
+            bootstrap: ./external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          - os: windows-latest
+            bootstrap: .\external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+    runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Create vcpkg binary cache directory
+        run: cmake -E make_directory .vcpkg-cache
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-default-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-default-
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool pkg-config
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja pkg-config automake autoconf libtool
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Bootstrap vcpkg
+        run: ${{ matrix.bootstrap }}
+      - name: Configure
+        run: cmake --preset default
+      - name: Build
+        run: cmake --build --preset default
+      - name: Test
+        run: ctest --preset default
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: beatdown-${{ matrix.os }}
+          path: |
+            build/default/beatdown
+            build/default/beatdown.exe
+          if-no-files-found: ignore
