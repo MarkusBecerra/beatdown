@@ -24,6 +24,7 @@ find_package(Threads REQUIRED)
 
 add_library(beatdown_core STATIC
   src/core/version.cpp
+  src/core/tags.cpp
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
@@ -42,6 +43,7 @@ if(BEATDOWN_BUILD_TESTS)
   enable_testing()
   add_executable(beatdown_tests
     tests/test_version.cpp
+    tests/test_tags.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_compile_definitions(beatdown_tests PRIVATE BEATDOWN_BIN="$<TARGET_FILE:beatdown>")
