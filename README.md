@@ -6,7 +6,7 @@ beatdown is a command-line tool that batch-converts a folder of WAV, AIFF or FLA
 
 ## Install
 
-Release binaries — macOS (universal, arm64 + x86_64), Windows x64 and Linux x86_64 — are built by the release workflow and attached to [Releases](https://github.com/MarkusBecerra/beatdown/releases) when a version is tagged. None has been published yet, so for now build from source — one recipe on all three OSes.
+Release binaries — macOS 11 or later (universal, arm64 + x86_64), Windows x64 and Linux x86_64 — are built by the release workflow and attached to [Releases](https://github.com/MarkusBecerra/beatdown/releases) when a version is tagged. None has been published yet, so for now build from source — one recipe on all three OSes.
 
 Prerequisites: CMake 3.25 or newer, Ninja and a C++20 compiler; on macOS and Linux also pkg-config and the autotools (autoconf, automake, libtool) — on macOS, `brew install cmake ninja pkg-config autoconf automake libtool`. On Windows, run the commands from a Visual Studio 2022 Developer prompt (MSVC).
 
