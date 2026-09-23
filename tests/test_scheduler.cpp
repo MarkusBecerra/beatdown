@@ -53,3 +53,29 @@ TEST_CASE("run_parallel with zero jobs returns immediately") {
     std::atomic<bool> cancel{false};
     REQUIRE(run_parallel(4, 0, [](size_t) {}, cancel) == 0);
 }
+
+TEST_CASE("run_parallel with single worker rethrows first exception and stops launching") {
+    std::atomic<int> ran{0};
+    std::atomic<bool> cancel{false};
+    REQUIRE_THROWS_AS(
+        run_parallel(1, 10, [&](size_t i) {
+            ran++;
+            if (i == 3) throw std::runtime_error("boom");
+        }, cancel),
+        std::runtime_error
+    );
+    REQUIRE(ran == 4);
+}
+
+TEST_CASE("run_parallel with multiple workers rethrows first exception") {
+    std::atomic<int> ran{0};
+    std::atomic<bool> cancel{false};
+    REQUIRE_THROWS_AS(
+        run_parallel(4, 50, [&](size_t i) {
+            ran++;
+            if (i == 0) throw std::runtime_error("boom");
+        }, cancel),
+        std::runtime_error
+    );
+    REQUIRE(ran < 50);
+}
