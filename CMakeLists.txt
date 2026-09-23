@@ -36,6 +36,7 @@ add_library(beatdown_core STATIC
   src/core/verifier.cpp
   src/core/space.cpp
   src/core/scheduler.cpp
+  src/core/converter.cpp
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
@@ -69,6 +70,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_verifier.cpp
     tests/test_space.cpp
     tests/test_scheduler.cpp
+    tests/test_converter.cpp
   )
   target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
   target_include_directories(beatdown_tests PRIVATE tests)
