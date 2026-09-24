@@ -25,26 +25,25 @@ static std::optional<std::string> str(SNDFILE* sf, int key) {
     return sanitize_utf8(s);
 }
 
+std::mutex& sf_open_mutex() {
+    static std::mutex m;
+    return m;
+}
+
 std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::string& error) {
     SF_INFO info{};
     SNDFILE* sf;
     {
-        // Task 18 fix round 1: libsndfile's MPEG/MP3 read backend calls mpg123_init() on every
-        // open (see its own src/mpeg_decode.c, which documents this itself as a "FIXME -
-        // Threading issues": that call writes shared static tables without synchronization).
-        // mpg123's header claims concurrent calls "should" be safe since the tables end up with
-        // the same values regardless, but that didn't hold up empirically here: a stress test of
-        // 12 files at --jobs 8 crashed with SIGBUS in 9 of 60 runs before this fix, 0 of 200
-        // after. Opening is a small fraction of total conversion time, so serializing just this
-        // call (not the read loop that follows) keeps decoding itself fully parallel.
-        static std::mutex open_mutex;
-        std::lock_guard<std::mutex> lock(open_mutex);
+        // See sf_open_mutex()'s doc comment (decoder.hpp): the race is in mpg123_new(), so this
+        // lock must stay around every read-mode open (not just MP3s -- opening one is what can
+        // trigger it, and there's no cheap way to know a file is MPEG before opening it). The
+        // error string is read here too, still inside the lock: it comes from libsndfile's
+        // global last-error code, which a concurrent open (in either mode) can overwrite first.
+        std::lock_guard<std::mutex> lock(sf_open_mutex());
         sf = platform::sf_open_path(path, SFM_READ, &info);
+        if (!sf) error = sf_strerror(nullptr);
     }
-    if (!sf) {
-        error = sf_strerror(nullptr);
-        return nullptr;
-    }
+    if (!sf) return nullptr;
     if (info.channels < 1 || info.samplerate < 1) {
         error = "no audio channels or sample rate";
         sf_close(sf);

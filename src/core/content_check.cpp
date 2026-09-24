@@ -101,20 +101,20 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
 // tag itself -- so, unlike hip's own decoder, there is no encoder/decoder priming delay to skip:
 // alignment starts at sample 0 on both sides.
 
-// A 4th-order (two cascaded biquads, Q 1/sqrt(2)) Butterworth lowpass at 16 kHz, transposed
-// Direct Form II. Applied to both sides before every RMS figure below, so the MP3's own
+// A 4th-order (two cascaded biquads, Q 1/sqrt(2)) Butterworth lowpass at a shared cutoff,
+// transposed Direct Form II. Applied to both sides (at the same cutoff frequency, though each
+// side runs it at its own sample rate) before every RMS figure below, so the MP3's own
 // intentional ~20.3 kHz rolloff (see the club-readiness report) isn't counted as a level
 // difference -- full-band material otherwise reads quieter on the decoded side by exactly the
 // energy that rolloff removes, which rejected legitimate bright/broadband masters (round-1
-// review, Important 2). Left inactive (pass-through) when 16 kHz would be at or past 0.45x this
-// side's own Nyquist, where a stable biquad can't be designed (only reachable below ~35.5 kHz).
-struct Lowpass16k {
+// review, Important 2). Left inactive (pass-through) when the cutoff would be at or past 0.45x
+// this side's own Nyquist, where a stable biquad can't be designed.
+struct Lowpass {
     double z[2][2] = {};  // [stage][state]
     double b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
     bool active = false;
 
-    void design(double rate) {
-        const double fc = 16000.0;
+    void design(double rate, double fc) {
         if (fc >= 0.45 * rate) return;
         active = true;
         double w0 = 2.0 * 3.14159265358979323846 * fc / rate;
@@ -150,12 +150,12 @@ struct SideStats {
     double peak = 0.0;
     std::vector<double> block_sumsq[2];
     std::vector<int64_t> block_count[2];
-    Lowpass16k lp[2];
+    Lowpass lp[2];
 
-    void init(int ch, int r) {
+    void init(int ch, int r, double fc) {
         channels = ch;
         rate = r;
-        for (int c = 0; c < channels; ++c) lp[c].design(rate);
+        for (int c = 0; c < channels; ++c) lp[c].design(rate, fc);
     }
     void add_frame(const float* frame) {
         int64_t block = total_frames / rate;
@@ -195,8 +195,8 @@ struct SideStats {
     }
 };
 
-void accumulate(Decoder& d, SideStats& st) {
-    st.init(d.info().channels, d.info().sample_rate);
+void accumulate(Decoder& d, SideStats& st, double lowpass_fc) {
+    st.init(d.info().channels, d.info().sample_rate, lowpass_fc);
     const int64_t kFrames = 4096;
     std::vector<float> buf(static_cast<size_t>(kFrames) * st.channels);
     int64_t n;
@@ -225,16 +225,25 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
         return r;
     }
 
+    // Task 18 fix round 2: one shared analysis cutoff for both sides, so a 32 kHz-class source
+    // (or output) isn't left completely unfiltered while the other side gets the full 16 kHz
+    // lowpass -- that asymmetry, not just a too-high fixed 16 kHz, was rejecting bright material
+    // at low sample rates. 0.4x (not 0.45x) leaves the per-side Lowpass::design() Nyquist guard
+    // as a pure safety net that a correctly computed shared cutoff should never actually hit.
+    double lowpass_fc = std::min(16000.0, 0.4 * std::min(si.sample_rate, oi.sample_rate));
+
     SideStats src, mp3;
-    accumulate(*sd, src);
-    accumulate(*od, mp3);
+    accumulate(*sd, src, lowpass_fc);
+    accumulate(*od, mp3, lowpass_fc);
     r.peak_dbfs = db20(mp3.peak);
 
-    // Length: decoded frames must equal the source exactly at an unchanged rate, else land
-    // within +-2 frames of round(source_frames * out_rate / in_rate).
+    // Length: decoded frames must equal the frames actually read from the source (not the
+    // source's declared frame count, which would misreport a truncated *source* as a bad output)
+    // exactly at an unchanged rate, else land within +-2 frames of
+    // round(source_frames_read * out_rate / in_rate).
     bool same_rate = oi.sample_rate == si.sample_rate;
-    int64_t expected = same_rate ? si.frames
-                                  : std::llround(static_cast<double>(si.frames) * oi.sample_rate / si.sample_rate);
+    int64_t expected = same_rate ? src.total_frames
+                                  : std::llround(static_cast<double>(src.total_frames) * oi.sample_rate / si.sample_rate);
     int64_t diff = std::llabs(mp3.total_frames - expected);
     if (same_rate ? (diff != 0) : (diff > 2)) {
         r.error = "audio content: length " + std::to_string(mp3.total_frames) + " frames, expected " + std::to_string(expected) +

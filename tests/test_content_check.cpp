@@ -329,3 +329,14 @@ TEST_CASE("verify_content passes a -48 dBFS high-passed hat intro followed by lo
     encode_to(src, t.path / "intro.mp3", s);
     REQUIRE(verify_content(t.path / "intro.mp3", s, src).error == "");
 }
+
+// Task 18 fix round 2, item 7: a shared analysis lowpass cutoff (min(16 kHz, 0.4x the lower of
+// the two sides' rates)) is used for both sides, so a 32 kHz source (Nyquist 16 kHz) isn't left
+// completely unfiltered on one side while the other gets the full 16 kHz lowpass.
+TEST_CASE("verify_content passes bright 32 kHz white noise") {
+    TempDir t;
+    auto src = write_signal(t.path / "white32.wav", 32000, gen_white(32000, 3.0, -20.0));
+    EncodeSettings s;
+    encode_to(src, t.path / "white32.mp3", s);
+    REQUIRE(verify_content(t.path / "white32.mp3", s, src).error == "");
+}

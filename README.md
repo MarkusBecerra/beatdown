@@ -31,8 +31,8 @@ beatdown <source> <destination> [options]
   <destination>     folder to write MP3s into; created if missing
 
   --format mp3|flac output format (default: mp3 — 320 kbps CBR; flac — lossless)
-  --bitrate KBPS    MP3 CBR bitrate, 32–320 (default: 320)
-  --vbr N           MP3 VBR at LAME quality N, 0 = best (instead of --bitrate)
+  --bitrate KBPS    MP3 CBR bitrate: 128, 160, 192, 224, 256 or 320 (default: 320)
+  --vbr N           MP3 VBR at LAME quality N: 0 (best) .. 3, or 5 .. 8 (instead of --bitrate)
   --jobs N          parallel encodes (default: all hardware threads)
   --overwrite       re-encode even if the output exists and is up to date
   --no-recursive    only the top level of <source>
@@ -63,6 +63,8 @@ gives Artist `simple fact`, Title `slipz` — the output *filename* is unaffecte
 - **Free-space check.** Before writing anything, beatdown estimates the total output size from the source files' headers and refuses to start unless free space on the destination volume is at least that estimate plus a 10% margin; `--dry-run` shows the same projection (and fails the same way if space is short). If the disk fills up mid-run anyway, the file that hit it fails and the batch stops launching new encodes — "Stopped early: destination disk is full" — rather than failing every remaining file one by one.
 - **FLAC bit depth.** 16- and 24-bit sources are written bit-exact. 32-bit integer and 32-bit float sources are written as 24-bit FLAC, because libsndfile's FLAC writer tops out at 24 bits.
 - **MP3 sample rate.** 44.1 and 48 kHz sources keep their rate; higher rates are resampled to 48 kHz and lower ones to 44.1 kHz — the MPEG-1 rates, the only ones at which 320 kbps exists.
+- **MP3 bitrate/VBR range.** `--bitrate` accepts 128–320 kbps and `--vbr` accepts levels 0–3 and 5–8: lower settings aren't club quality, and beatdown can't verify their audio content reliably (below 128 kbps CBR, LAME may omit the tag its own gapless decoding depends on; VBR level 4 and 9 measured outside the level-check tolerance on real bright material — see the task report in `.superpowers/` for the numbers).
+- **MP3 sources are refused.** A source that's already MP3 data (including one saved with a `.wav` extension) fails with "source is MP3 data — not re-encoding lossy audio" — re-encoding an already-lossy file only compounds the loss.
 - **Ctrl-C.** The first press stops launching new encodes and aborts the ones in flight — their temp files are removed, so nothing half-written is left behind — then prints the summary and exits 130. Press it again to force-quit immediately; that skips the cleanup and can leave a hidden `.beatdown-….part` temp file in the destination, which is safe to delete.
 - **Exit codes.** `0` everything converted or skipped · `1` one or more files failed, or the free-space check failed (including a `--dry-run` whose projection shows insufficient space) · `2` bad arguments, or a destination whose parent folder doesn't exist · `130` interrupted by Ctrl-C.
 - **`--dry-run` / `--quiet` / `--verbose`.** `--dry-run` lists the files that would be converted (with an estimated output size) and the files that would be skipped, without writing anything. `--quiet` prints only errors, failures and the final summary. `--verbose` prints the encoder settings used for each file plus the skipped files — beatdown links the encoder as a library rather than shelling out to one, so there's no "encoder command" to print, only the settings it used.

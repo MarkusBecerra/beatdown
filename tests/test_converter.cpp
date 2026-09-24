@@ -194,6 +194,20 @@ TEST_CASE("convert_one replaces the FFFE/FFFF noncharacters libFLAC rejects inst
     REQUIRE(d->tags().title == "Mix \xEF\xBF\xBD");
 }
 
+// Task 18 fix round 2, item 6: verify_mp3's minimum-size check is "at least one audio frame
+// after the Info/Xing frame", not a fixed byte count -- a very short, low-bitrate file is
+// legitimately small and must not be rejected as "implausibly small".
+TEST_CASE("convert_one converts a very short (0.05 s) source at 128 kbps") {
+    TempDir t;
+    auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.05});
+    fs::create_directories(t.path / "out");
+    Options o = opts(t.path / "out");
+    o.encode.bitrate = 128;
+    std::atomic<bool> cancel{false};
+    FileResult r = convert_one(job(src, t.path / "out/a.mp3"), o, cancel);
+    REQUIRE(r.outcome == Outcome::Converted);
+}
+
 TEST_CASE("convert_one produces FLAC when asked") {
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2});
@@ -219,4 +233,42 @@ TEST_CASE("convert_one sets peak_dbfs for MP3 outputs and leaves it empty for FL
     FileResult flacr = convert_one(job(src, t.path / "out/a.flac"), flac_o, cancel);
     REQUIRE(flacr.outcome == Outcome::Converted);
     REQUIRE_FALSE(flacr.peak_dbfs.has_value());
+}
+
+// Task 18 fix round 2, item 3: an MP3 renamed to .wav still decodes as MPEG -- refused outright
+// for either output format, since re-encoding lossy audio compounds its losses for no benefit.
+TEST_CASE("convert_one refuses an MP3 renamed to .wav, for both output formats") {
+    TempDir t;
+    auto real_src = make_audio(t.path / "real.wav", {.seconds = 0.3});
+    fs::create_directories(t.path / "out");
+    std::atomic<bool> cancel{false};
+    FileResult mp3r = convert_one(job(real_src, t.path / "out/real.mp3"), opts(t.path / "out"), cancel);
+    REQUIRE(mp3r.outcome == Outcome::Converted);
+
+    auto disguised = t.path / "src/disguised.wav";
+    fs::create_directories(disguised.parent_path());
+    fs::copy_file(t.path / "out/real.mp3", disguised);
+
+    FileResult r1 = convert_one(job(disguised, t.path / "out2/a.mp3"), opts(t.path / "out2"), cancel);
+    REQUIRE(r1.outcome == Outcome::Failed);
+    REQUIRE_THAT(r1.error, ContainsSubstring("source is MP3 data — not re-encoding lossy audio"));
+
+    Options flac_o = opts(t.path / "out2"); flac_o.encode.format = Format::Flac;
+    FileResult r2 = convert_one(job(disguised, t.path / "out2/a.flac"), flac_o, cancel);
+    REQUIRE(r2.outcome == Outcome::Failed);
+    REQUIRE_THAT(r2.error, ContainsSubstring("source is MP3 data — not re-encoding lossy audio"));
+}
+
+// Task 18 fix round 2, item 4: a source whose header declares more frames than are actually
+// readable (e.g. truncated after being written) must not make content_check blame the output --
+// the output was correctly encoded from what could actually be read.
+TEST_CASE("convert_one succeeds when the source's declared frame count exceeds what's actually readable") {
+    TempDir t;
+    auto src = make_audio(t.path / "src/a.wav", {.seconds = 2.0});
+    std::string data = read_file(src);
+    write_bytes(src, data.substr(0, data.size() - 2000));  // well under verify_output's 1 s tolerance
+    fs::create_directories(t.path / "out");
+    std::atomic<bool> cancel{false};
+    FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
+    REQUIRE(r.outcome == Outcome::Converted);
 }

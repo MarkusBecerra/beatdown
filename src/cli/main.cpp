@@ -46,10 +46,17 @@ int main(int argc, char** argv) {
     app.add_option("destination", destination, "Folder to write outputs into; its last component is created if missing")->required();
     app.add_option("--format", format, "Output format: mp3 (320 kbps CBR) or flac (lossless)")
         ->check(CLI::IsMember({"mp3", "flac"}))->default_str("mp3");
-    // MPEG-1 Layer III rates only: the output is always 44.1 or 48 kHz, which is MPEG-1 (R8).
-    auto* bitrate = app.add_option("--bitrate", o.encode.bitrate, "MP3 CBR bitrate in kbps")
-        ->check(CLI::IsMember({32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}))->default_str("320");
-    auto* vbr_opt = app.add_option("--vbr", vbr, "MP3 VBR at LAME quality N (0 = best) instead of --bitrate")->check(CLI::Range(0, 9));
+    // Task 18 fix round 2: restricted to the settings the content verifier can certify soundly.
+    // Below 128 kbps CBR, LAME omits its own Info/LAME tag when it won't fit in one CBR frame, so
+    // mpg123 has no gapless data and returns the whole (longer, padded) stream, which always
+    // fails the exact-length check; below ~112 kbps, LAME's own encoder lowpass also drops under
+    // 16 kHz, so bright material fails the level check even when the length is fine. VBR level 4
+    // and 9 similarly fail on real bright-material probes (see the task report for the numbers).
+    // None of this is club-quality material at these rates anyway.
+    auto* bitrate = app.add_option("--bitrate", o.encode.bitrate, "MP3 CBR bitrate in kbps (128-320: lower isn't club quality and can't be verified reliably)")
+        ->check(CLI::IsMember({128, 160, 192, 224, 256, 320}))->default_str("320");
+    auto* vbr_opt = app.add_option("--vbr", vbr, "MP3 VBR at LAME quality N (0 = best, 8 = lowest verified) instead of --bitrate")
+        ->check(CLI::IsMember({0, 1, 2, 3, 5, 6, 7, 8}));
     bitrate->excludes(vbr_opt);
     app.add_option("--jobs", o.jobs, "Parallel encodes (default: all hardware threads)")->check(CLI::PositiveNumber);
     app.add_flag("--overwrite", o.overwrite, "Re-encode even if the output already exists");

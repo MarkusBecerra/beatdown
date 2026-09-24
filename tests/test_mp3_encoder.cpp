@@ -78,6 +78,15 @@ TEST_CASE("LameEncoder downsamples 96 kHz to 48 kHz and keeps 44.1") {
     REQUIRE(encode_and_parse(make_audio(t.path / "44.wav", {.rate = 44100}), t.path / "44.mp3").sample_rate == 44100);
 }
 
+// Task 18 fix round 2, item 5: the output MP3 buffer must be sized for the resample ratio, not
+// just the input frame count -- an 8/12 kHz source upsampled to 44.1 kHz packs far more encoded
+// output time into the same input chunk than a same-rate encode does.
+TEST_CASE("LameEncoder converts 8 kHz and 12 kHz 1-second sources") {
+    TempDir t;
+    REQUIRE(encode_and_parse(make_audio(t.path / "8k.wav", {.rate = 8000, .seconds = 1.0}), t.path / "8k.mp3").sample_rate == 44100);
+    REQUIRE(encode_and_parse(make_audio(t.path / "12k.wav", {.rate = 12000, .seconds = 1.0}), t.path / "12k.mp3").sample_rate == 44100);
+}
+
 TEST_CASE("LameEncoder honours --bitrate and --vbr") {
     TempDir t;
     auto src = make_audio(t.path / "a.wav", {.seconds = 2.0});

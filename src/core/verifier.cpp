@@ -10,10 +10,14 @@ namespace beatdown {
 std::string verify_mp3(const fs::path& out, const EncodeSettings& s, const AudioInfo& src) {
     std::error_code ec;
     if (!fs::exists(out, ec)) return "output missing";
-    if (fs::file_size(out, ec) < 1024) return "output is implausibly small";
     Mp3Info info;
     std::string err;
     if (!parse_mp3(out, info, err)) return "output is not a readable MP3: " + err;
+    // Task 18 fix round 2: a fixed byte-size floor (previously 1024) rejected legitimate short
+    // and/or low-bitrate outputs (a 0.05 s 128 kbps file is well under that). "At least one real
+    // audio frame beyond the Info/Xing frame" is the actual property that matters and scales
+    // correctly with duration and bitrate instead of guessing a byte count.
+    if (info.audio_frames < 1) return "output has no audio frames";
     if (info.trailing_bytes > 128)
         return "output has " + std::to_string(info.trailing_bytes) + " trailing bytes after the last frame";
     int expected_rate = mp3_output_rate(src.sample_rate);

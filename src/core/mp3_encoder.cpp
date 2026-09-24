@@ -100,7 +100,13 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
 
     const int64_t kFrames = 4096;
     std::vector<float> pcm(static_cast<size_t>(kFrames) * a.channels);
-    std::vector<unsigned char> mp3(static_cast<size_t>(1.25 * kFrames + 7200));
+    // Task 18 fix round 2: LAME's own sizing guidance is mp3buf_size = 1.25*num_samples + 7200,
+    // where num_samples must reflect the OUTPUT sample count for this many input frames, not the
+    // input frame count itself. For an upsampled source (e.g. 8 kHz -> 44.1 kHz, R7/R8) the same
+    // kFrames of input covers far more encoded output time than kFrames alone suggests -- sizing
+    // on the input count alone left the buffer undersized for low sample-rate sources.
+    const int64_t kOutFramesPerCall = static_cast<int64_t>(kFrames) * out_rate / a.sample_rate + 1;
+    std::vector<unsigned char> mp3(static_cast<size_t>(1.25 * kOutFramesPerCall + 7200));
     int64_t n;
     while ((n = in.read_float(pcm.data(), kFrames)) > 0) {
         if (cancel.load()) return "cancelled";

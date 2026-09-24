@@ -50,6 +50,10 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
     std::string err;
     auto dec = Decoder::open(job.source, err);
     if (!dec) return done(Outcome::Failed, err);
+    // Task 18 fix round 2: a source already coded as MP3 (however it's named -- an MP3 renamed
+    // to .wav still decodes as MPEG) is refused outright rather than re-encoded, for either
+    // output format: re-encoding lossy audio compounds its losses for no benefit.
+    if (dec->info().is_mpeg()) return done(Outcome::Failed, "source is MP3 data — not re-encoding lossy audio");
 
     std::error_code ec;
     fs::create_directories(job.output.parent_path(), ec);

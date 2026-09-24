@@ -52,10 +52,21 @@ TEST_CASE("cli: bad arguments exit 2") {
     REQUIRE(run_cli({}, t.path / "a.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "300"}, t.path / "b.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "8"}, t.path / "g.log").code == 2);   // MPEG-2 only
+    // Task 18 fix round 2: below 128 kbps CBR, LAME omits its own Info/LAME tag when it won't fit
+    // one CBR frame, so the content verifier can't certify it reliably (see the task report).
+    REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "112"}, t.path / "g2.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--bitrate", "192", "--vbr", "0"}, t.path / "c.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--format", "ogg"}, t.path / "d.log").code == 2);
     REQUIRE(run_cli({t.path.string(), t.path.string(), "--quiet", "--verbose"}, t.path / "e.log").code == 2);
     REQUIRE(run_cli({(t.path / "missing").string(), (t.path / "out").string()}, t.path / "f.log").code == 2);
+}
+
+TEST_CASE("cli: --bitrate 128 is accepted and converts") {
+    TempDir t;
+    make_audio(t.path / "src/a.wav", {.seconds = 0.3});
+    auto r = run_cli({(t.path / "src").string(), (t.path / "out").string(), "--bitrate", "128"}, t.path / "1.log");
+    REQUIRE(r.code == 0);
+    REQUIRE(fs::exists(t.path / "out/a.mp3"));
 }
 
 TEST_CASE("cli: converts a folder, then skips everything on the second run") {

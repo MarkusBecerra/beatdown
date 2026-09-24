@@ -1,4 +1,5 @@
 #include "core/flac_encoder.hpp"
+#include <mutex>
 #include <vector>
 #include <sndfile.h>
 #include "core/platform/platform.hpp"
@@ -38,8 +39,18 @@ std::string FlacEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     info.format = SF_FORMAT_FLAC | subtype;
     if (!sf_format_check(&info)) return "libsndfile cannot write FLAC with " + std::to_string(a.channels) + " channels at " + std::to_string(a.bits) + " bits";
 
-    SNDFILE* sf = platform::sf_open_path(out, SFM_WRITE, &info);
-    if (!sf) return std::string("cannot create FLAC: ") + sf_strerror(nullptr);
+    SNDFILE* sf;
+    std::string open_err;
+    {
+        // Task 18 fix round 2: shares Decoder::open()'s lock (see sf_open_mutex()'s doc comment
+        // in decoder.hpp) -- a write-mode open isn't itself the mpg123 hazard, but it still
+        // touches libsndfile's global last-error code, which a concurrent read-mode open racing
+        // on the same state could otherwise clobber before it's read below.
+        std::lock_guard<std::mutex> lock(sf_open_mutex());
+        sf = platform::sf_open_path(out, SFM_WRITE, &info);
+        if (!sf) open_err = sf_strerror(nullptr);
+    }
+    if (!sf) return "cannot create FLAC: " + open_err;
     struct Close { SNDFILE* s; ~Close() { if (s) sf_close(s); } } closer{sf};
 
     double level = 1.0;  // libsndfile maps 1.0 to FLAC compression level 8
