@@ -63,7 +63,7 @@ TEST_CASE("Options::effective_jobs defaults to hardware concurrency and honours 
 
 TEST_CASE("Options::output_extension follows the format") {
     Options o;
-    REQUIRE(std::string(o.output_extension()) == ".mp3");
+    REQUIRE(string(o.output_extension()) == ".mp3");
     o.encode.format = Format::Flac;
-    REQUIRE(std::string(o.output_extension()) == ".flac");
+    REQUIRE(string(o.output_extension()) == ".flac");
 }

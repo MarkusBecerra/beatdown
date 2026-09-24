@@ -18,15 +18,15 @@ void quiet_log(const char*, va_list) {}
 // All text goes through UTF-16 so non-ASCII survives; LAME's *_utf16 setters require a leading
 // byte-order mark, built numerically here so no editor can silently strip it. Sanitizing again
 // covers tags from any source, filename-derived ones included.
-std::u16string utf16_with_bom(const std::string& utf8) {
-    std::u16string u(1, char16_t(0xFEFF));
+u16string utf16_with_bom(const string& utf8) {
+    u16string u(1, char16_t(0xFEFF));
     u += utf8_to_utf16(sanitize_utf8(utf8));
     return u;
 }
 
-void set_text(lame_global_flags* gf, const char* id, const std::optional<std::string>& v) {
+void set_text(lame_global_flags* gf, const char* id, const optional<string>& v) {
     if (!v || v->empty()) return;
-    std::u16string u = utf16_with_bom(*v);
+    u16string u = utf16_with_bom(*v);
     id3tag_set_textinfo_utf16(gf, id, reinterpret_cast<const unsigned short*>(u.c_str()));
 }
 
@@ -36,10 +36,10 @@ struct LameGuard {
 };
 }  // namespace
 
-std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, const Tags& tags,
-                                const std::atomic<bool>& cancel, std::string* log) {
+string LameEncoder::encode(Decoder& in, const fs::path& out, const Tags& tags,
+                           const atomic<bool>& cancel, string* log) {
     const AudioInfo& a = in.info();
-    if (a.channels > 2) return "MP3 supports mono or stereo only; source has " + std::to_string(a.channels) + " channels";
+    if (a.channels > 2) return "MP3 supports mono or stereo only; source has " + to_string(a.channels) + " channels";
 
     LameGuard g{lame_init()};
     lame_global_flags* gf = g.gf;
@@ -74,7 +74,7 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
         set_text(gf, "TRCK", tags.track);
         set_text(gf, "TCON", tags.genre);
         if (tags.comment && !tags.comment->empty()) {
-            std::u16string u = utf16_with_bom(*tags.comment);
+            u16string u = utf16_with_bom(*tags.comment);
             id3tag_set_comment_utf16(gf, nullptr, nullptr, reinterpret_cast<const unsigned short*>(u.c_str()));
         }
     } else {
@@ -85,35 +85,35 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     // LAME silently substitutes what it can't honour (the nearest legal bitrate, another output
     // rate); refuse here, before anything is written, instead of failing verification after a full encode.
     if (!settings_.vbr && lame_get_brate(gf) != settings_.bitrate)
-        return "LAME can't encode CBR " + std::to_string(settings_.bitrate) + " kbps at " + std::to_string(out_rate) +
-               " Hz (it would use " + std::to_string(lame_get_brate(gf)) + " kbps)";
+        return "LAME can't encode CBR " + to_string(settings_.bitrate) + " kbps at " + to_string(out_rate) +
+               " Hz (it would use " + to_string(lame_get_brate(gf)) + " kbps)";
     if (lame_get_out_samplerate(gf) != out_rate)
-        return "LAME would write " + std::to_string(lame_get_out_samplerate(gf)) + " Hz instead of " + std::to_string(out_rate) + " Hz";
+        return "LAME would write " + to_string(lame_get_out_samplerate(gf)) + " Hz instead of " + to_string(out_rate) + " Hz";
     if (log) {
-        *log += "lame: " + std::to_string(a.sample_rate) + " Hz -> " + std::to_string(lame_get_out_samplerate(gf)) + " Hz, " +
-                (settings_.vbr ? "VBR q" + std::to_string(*settings_.vbr) : "CBR " + std::to_string(settings_.bitrate)) +
+        *log += "lame: " + to_string(a.sample_rate) + " Hz -> " + to_string(lame_get_out_samplerate(gf)) + " Hz, " +
+                (settings_.vbr ? "VBR q" + to_string(*settings_.vbr) : "CBR " + to_string(settings_.bitrate)) +
                 ", q0, " + (a.channels == 1 ? "mono" : "joint stereo") + "\n";
     }
 
-    std::ofstream f(out, std::ios::binary | std::ios::trunc);
+    ofstream f(out, ios::binary | ios::trunc);
     if (!f) return "cannot create " + path_to_utf8(out);
 
     const int64_t kFrames = 4096;
-    std::vector<float> pcm(static_cast<size_t>(kFrames) * a.channels);
+    vector<float> pcm(static_cast<size_t>(kFrames) * a.channels);
     // Task 18 fix round 2: LAME's own sizing guidance is mp3buf_size = 1.25*num_samples + 7200,
     // where num_samples must reflect the OUTPUT sample count for this many input frames, not the
     // input frame count itself. For an upsampled source (e.g. 8 kHz -> 44.1 kHz, R7/R8) the same
     // kFrames of input covers far more encoded output time than kFrames alone suggests -- sizing
     // on the input count alone left the buffer undersized for low sample-rate sources.
     const int64_t kOutFramesPerCall = static_cast<int64_t>(kFrames) * out_rate / a.sample_rate + 1;
-    std::vector<unsigned char> mp3(static_cast<size_t>(1.25 * kOutFramesPerCall + 7200));
+    vector<unsigned char> mp3(static_cast<size_t>(1.25 * kOutFramesPerCall + 7200));
     int64_t n;
     while ((n = in.read_float(pcm.data(), kFrames)) > 0) {
         if (cancel.load()) return "cancelled";
         int written = a.channels == 2
             ? lame_encode_buffer_interleaved_ieee_float(gf, pcm.data(), static_cast<int>(n), mp3.data(), static_cast<int>(mp3.size()))
             : lame_encode_buffer_ieee_float(gf, pcm.data(), pcm.data(), static_cast<int>(n), mp3.data(), static_cast<int>(mp3.size()));
-        if (written < 0) return "lame encode error " + std::to_string(written);
+        if (written < 0) return "lame encode error " + to_string(written);
         f.write(reinterpret_cast<const char*>(mp3.data()), written);
         if (!f) return "write failed: " + path_to_utf8(out);
     }
@@ -124,11 +124,11 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     // Xing/Info frame: LAME reserved a frame at the start of the stream; fill it in now.
     size_t tag_size = lame_get_lametag_frame(gf, nullptr, 0);
     if (tag_size > 0) {
-        std::vector<unsigned char> tag(tag_size);
+        vector<unsigned char> tag(tag_size);
         lame_get_lametag_frame(gf, tag.data(), tag.size());
         size_t id3_size = tags.empty() ? 0 : lame_get_id3v2_tag(gf, nullptr, 0);
-        f.seekp(static_cast<std::streamoff>(id3_size));
-        f.write(reinterpret_cast<const char*>(tag.data()), static_cast<std::streamsize>(tag.size()));
+        f.seekp(static_cast<streamoff>(id3_size));
+        f.write(reinterpret_cast<const char*>(tag.data()), static_cast<streamsize>(tag.size()));
     }
     f.close();
     if (!f) return "write failed: " + path_to_utf8(out);

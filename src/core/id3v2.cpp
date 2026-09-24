@@ -14,12 +14,12 @@ static uint32_t be32(const unsigned char* p) {
 }
 
 // Decode an ID3 text payload (encoding byte already consumed). Strips trailing NULs.
-static std::string decode_text(int enc, std::string_view data) {
-    std::string out;
+static string decode_text(int enc, string_view data) {
+    string out;
     if (enc == 0) out = latin1_to_utf8(data);
     else if (enc == 3) out = sanitize_utf8(data);   // declared UTF-8 is not always valid UTF-8
     else {
-        std::u16string u;
+        u16string u;
         for (size_t i = 0; i + 1 < data.size(); i += 2) {
             uint16_t lo = static_cast<unsigned char>(data[i]), hi = static_cast<unsigned char>(data[i + 1]);
             u.push_back(enc == 2 ? char16_t((lo << 8) | hi) : char16_t(lo | (hi << 8)));  // BE (2) or BOM-led (1)
@@ -32,7 +32,7 @@ static std::string decode_text(int enc, std::string_view data) {
 }
 
 // Skip the terminator of a string in `data` at `pos` for the given encoding; returns index after it.
-static size_t skip_terminated(int enc, std::string_view data, size_t pos) {
+static size_t skip_terminated(int enc, string_view data, size_t pos) {
     if (enc == 1 || enc == 2) {
         for (; pos + 1 < data.size(); pos += 2) if (data[pos] == 0 && data[pos + 1] == 0) return pos + 2;
         return data.size();
@@ -41,7 +41,7 @@ static size_t skip_terminated(int enc, std::string_view data, size_t pos) {
     return data.size();
 }
 
-bool parse_id3v2(std::string_view bytes, Tags& out, size_t* tag_size) {
+bool parse_id3v2(string_view bytes, Tags& out, size_t* tag_size) {
     if (bytes.size() < 10 || bytes.substr(0, 3) != "ID3") return false;
     const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
     int major = p[3];
@@ -61,16 +61,16 @@ bool parse_id3v2(std::string_view bytes, Tags& out, size_t* tag_size) {
     }
     while (pos + 10 <= end) {
         if (p[pos] == 0) break;  // padding
-        std::string id(bytes.substr(pos, 4));
+        string id(bytes.substr(pos, 4));
         size_t fsize = major == 4 ? syncsafe(p + pos + 4) : be32(p + pos + 4);
         pos += 10;
         if (fsize == 0 || pos + fsize > end) break;
-        std::string_view data = bytes.substr(pos, fsize);
+        string_view data = bytes.substr(pos, fsize);
         pos += fsize;
         int enc = static_cast<unsigned char>(data[0]);
         if (enc > 3) continue;
         if (id[0] == 'T' && id != "TXXX") {
-            std::string text = decode_text(enc, data.substr(1));
+            string text = decode_text(enc, data.substr(1));
             if (text.empty()) continue;
             if (id == "TIT2") out.title = text;
             else if (id == "TPE1") out.artist = text;
@@ -80,42 +80,42 @@ bool parse_id3v2(std::string_view bytes, Tags& out, size_t* tag_size) {
             else if (id == "TCON") out.genre = text;
         } else if (id == "COMM" && data.size() > 4) {
             size_t after_desc = skip_terminated(enc, data, 4);
-            std::string text = decode_text(enc, data.substr(after_desc));
+            string text = decode_text(enc, data.substr(after_desc));
             if (!text.empty() && !out.comment) out.comment = text;
         }
     }
     return true;
 }
 
-Tags read_wav_id3_chunk(const std::filesystem::path& wav) {
+Tags read_wav_id3_chunk(const fs::path& wav) {
     Tags t;
-    std::ifstream in(wav, std::ios::binary);
+    ifstream in(wav, ios::binary);
     char hdr[12];
-    if (!in.read(hdr, 12) || std::memcmp(hdr, "RIFF", 4) != 0 || std::memcmp(hdr + 8, "WAVE", 4) != 0) return t;
+    if (!in.read(hdr, 12) || memcmp(hdr, "RIFF", 4) != 0 || memcmp(hdr + 8, "WAVE", 4) != 0) return t;
     while (in) {
         unsigned char ch[8];
         if (!in.read(reinterpret_cast<char*>(ch), 8)) break;
         uint32_t csize = uint32_t(ch[4]) | (uint32_t(ch[5]) << 8) | (uint32_t(ch[6]) << 16) | (uint32_t(ch[7]) << 24);
-        if (std::memcmp(ch, "id3 ", 4) == 0 || std::memcmp(ch, "ID3 ", 4) == 0) {
+        if (memcmp(ch, "id3 ", 4) == 0 || memcmp(ch, "ID3 ", 4) == 0) {
             if (csize > (64u << 20)) return t;  // absurd; refuse to slurp
-            std::string data(csize, '\0');
+            string data(csize, '\0');
             if (!in.read(data.data(), csize)) return t;
             parse_id3v2(data, t);
             return t;
         }
-        in.seekg(csize + (csize & 1), std::ios::cur);
+        in.seekg(csize + (csize & 1), ios::cur);
     }
     return t;
 }
 
 // ---- test-only builder ----
-static void frame(std::string& out, const char* id, int enc, const std::string& utf8, bool comment = false) {
-    std::string payload(1, static_cast<char>(enc));
-    if (comment) { payload += "eng"; payload += (enc == 1 || enc == 2) ? std::string("\0\0", 2) : std::string("\0", 1); }
+static void frame(string& out, const char* id, int enc, const string& utf8, bool comment = false) {
+    string payload(1, static_cast<char>(enc));
+    if (comment) { payload += "eng"; payload += (enc == 1 || enc == 2) ? string("\0\0", 2) : string("\0", 1); }
     if (enc == 0) { for (char16_t c : utf8_to_utf16(utf8)) payload.push_back(static_cast<char>(c < 256 ? c : '?')); }
     else if (enc == 3) payload += utf8;
     else {
-        std::u16string u;
+        u16string u;
         u.push_back(char16_t(0xFEFF));
         u += utf8_to_utf16(utf8);
         for (char16_t c : u) { payload.push_back(static_cast<char>(c & 0xFF)); payload.push_back(static_cast<char>(c >> 8)); }
@@ -123,12 +123,12 @@ static void frame(std::string& out, const char* id, int enc, const std::string& 
     uint32_t n = static_cast<uint32_t>(payload.size());
     out += id;
     out.push_back(static_cast<char>(n >> 24)); out.push_back(static_cast<char>(n >> 16)); out.push_back(static_cast<char>(n >> 8)); out.push_back(static_cast<char>(n));
-    out += std::string("\0\0", 2);
+    out += string("\0\0", 2);
     out += payload;
 }
 
-std::string build_id3v2_for_test(const Tags& t, int enc) {
-    std::string body;
+string build_id3v2_for_test(const Tags& t, int enc) {
+    string body;
     if (t.title) frame(body, "TIT2", enc, *t.title);
     if (t.artist) frame(body, "TPE1", enc, *t.artist);
     if (t.album) frame(body, "TALB", enc, *t.album);
@@ -137,7 +137,7 @@ std::string build_id3v2_for_test(const Tags& t, int enc) {
     if (t.genre) frame(body, "TCON", enc, *t.genre);
     if (t.comment) frame(body, "COMM", enc, *t.comment, true);
     uint32_t n = static_cast<uint32_t>(body.size());
-    std::string out = "ID3";
+    string out = "ID3";
     out.push_back(3); out.push_back(0); out.push_back(0);
     out.push_back(static_cast<char>((n >> 21) & 0x7F)); out.push_back(static_cast<char>((n >> 14) & 0x7F));
     out.push_back(static_cast<char>((n >> 7) & 0x7F)); out.push_back(static_cast<char>(n & 0x7F));

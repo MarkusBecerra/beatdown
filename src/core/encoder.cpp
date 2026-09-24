@@ -4,9 +4,9 @@
 
 namespace beatdown {
 
-std::unique_ptr<Encoder> make_encoder(const EncodeSettings& s) {
-    if (s.format == Format::Flac) return std::make_unique<FlacEncoder>();
-    return std::make_unique<LameEncoder>(s);
+unique_ptr<Encoder> make_encoder(const EncodeSettings& s) {
+    if (s.format == Format::Flac) return make_unique<FlacEncoder>();
+    return make_unique<LameEncoder>(s);
 }
 
 }  // namespace beatdown

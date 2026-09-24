@@ -19,18 +19,18 @@ static int bits_for(int format) {
 }
 
 // libsndfile hands back the tag's bytes as stored, which older Windows tools wrote as cp1252.
-static std::optional<std::string> str(SNDFILE* sf, int key) {
+static optional<string> str(SNDFILE* sf, int key) {
     const char* s = sf_get_string(sf, key);
-    if (!s || !*s) return std::nullopt;
+    if (!s || !*s) return nullopt;
     return sanitize_utf8(s);
 }
 
-std::mutex& sf_open_mutex() {
-    static std::mutex m;
+mutex& sf_open_mutex() {
+    static mutex m;
     return m;
 }
 
-std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::string& error) {
+unique_ptr<Decoder> Decoder::open(const fs::path& path, string& error) {
     SF_INFO info{};
     SNDFILE* sf;
     {
@@ -39,7 +39,7 @@ std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::s
         // trigger it, and there's no cheap way to know a file is MPEG before opening it). The
         // error string is read here too, still inside the lock: it comes from libsndfile's
         // global last-error code, which a concurrent open (in either mode) can overwrite first.
-        std::lock_guard<std::mutex> lock(sf_open_mutex());
+        lock_guard<mutex> lock(sf_open_mutex());
         sf = platform::sf_open_path(path, SFM_READ, &info);
         if (!sf) error = sf_strerror(nullptr);
     }
@@ -49,7 +49,7 @@ std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::s
         sf_close(sf);
         return nullptr;
     }
-    std::unique_ptr<Decoder> d(new Decoder());
+    unique_ptr<Decoder> d(new Decoder());
     d->sf_ = sf;
     d->path_ = path;
     d->info_.channels = info.channels;

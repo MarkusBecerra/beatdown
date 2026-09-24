@@ -11,7 +11,7 @@ constexpr uint32_t kReplacement = 0xFFFD;
 // if the bytes there aren't valid UTF-8: a stray continuation byte or an impossible lead byte,
 // a missing or bad continuation byte (including a sequence cut off by the end of `s`), an
 // overlong form, a UTF-16 surrogate (U+D800–U+DFFF) or a code point beyond U+10FFFF.
-size_t decode_utf8(std::string_view s, size_t i, uint32_t& cp) {
+size_t decode_utf8(string_view s, size_t i, uint32_t& cp) {
     unsigned char c = static_cast<unsigned char>(s[i]);
     size_t len;
     uint32_t min;
@@ -30,7 +30,7 @@ size_t decode_utf8(std::string_view s, size_t i, uint32_t& cp) {
     return len;
 }
 
-void append_utf8(std::string& out, uint32_t cp) {
+void append_utf8(string& out, uint32_t cp) {
     if (cp < 0x80) out.push_back(static_cast<char>(cp));
     else if (cp < 0x800) { out.push_back(static_cast<char>(0xC0 | (cp >> 6))); out.push_back(static_cast<char>(0x80 | (cp & 0x3F))); }
     else if (cp < 0x10000) { out.push_back(static_cast<char>(0xE0 | (cp >> 12))); out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (cp & 0x3F))); }
@@ -46,8 +46,8 @@ constexpr uint16_t kCp1252Row8[32] = {
     0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178,  // 98–9F
 };
 
-std::string cp1252_to_utf8(std::string_view s) {
-    std::string out;
+string cp1252_to_utf8(string_view s) {
+    string out;
     out.reserve(s.size() * 2);
     for (unsigned char c : s) {
         uint32_t cp = c;
@@ -59,8 +59,8 @@ std::string cp1252_to_utf8(std::string_view s) {
 
 }  // namespace
 
-std::u16string utf8_to_utf16(std::string_view s) {
-    std::u16string out;
+u16string utf8_to_utf16(string_view s) {
+    u16string out;
     out.reserve(s.size());
     size_t i = 0;
     while (i < s.size()) {
@@ -79,7 +79,7 @@ std::u16string utf8_to_utf16(std::string_view s) {
     return out;
 }
 
-std::string utf16_to_utf8(std::u16string_view s) {
+string utf16_to_utf8(u16string_view s) {
     bool swap = false;
     if (!s.empty() && s[0] == 0xFEFF) s.remove_prefix(1);
     else if (!s.empty() && s[0] == 0xFFFE) { swap = true; s.remove_prefix(1); }
@@ -87,7 +87,7 @@ std::string utf16_to_utf8(std::u16string_view s) {
         uint32_t u = s[i];
         return swap ? ((u >> 8) | ((u & 0xFF) << 8)) : u;
     };
-    std::string out;
+    string out;
     out.reserve(s.size() * 3);
     for (size_t i = 0; i < s.size(); ++i) {
         uint32_t u = unit(i);
@@ -105,15 +105,15 @@ std::string utf16_to_utf8(std::u16string_view s) {
     return out;
 }
 
-std::string latin1_to_utf8(std::string_view s) {
-    std::string out;
+string latin1_to_utf8(string_view s) {
+    string out;
     out.reserve(s.size() * 2);
     for (unsigned char c : s) append_utf8(out, c);
     return out;
 }
 
-std::string sanitize_utf8(std::string_view s) {
-    std::string out;
+string sanitize_utf8(string_view s) {
+    string out;
     out.reserve(s.size());
     size_t i = 0;
     while (i < s.size()) {
@@ -133,14 +133,14 @@ std::string sanitize_utf8(std::string_view s) {
     return out;
 }
 
-std::string path_to_utf8(const std::filesystem::path& p) {
+string path_to_utf8(const fs::path& p) {
     auto u8 = p.u8string();
-    return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+    return string(reinterpret_cast<const char*>(u8.data()), u8.size());
 }
 
-std::filesystem::path path_from_utf8(std::string_view s) {
-    std::u8string u8(reinterpret_cast<const char8_t*>(s.data()), s.size());
-    return std::filesystem::path(u8);
+fs::path path_from_utf8(string_view s) {
+    u8string u8(reinterpret_cast<const char8_t*>(s.data()), s.size());
+    return fs::path(u8);
 }
 
 }  // namespace beatdown

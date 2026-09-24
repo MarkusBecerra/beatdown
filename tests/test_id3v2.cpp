@@ -12,7 +12,7 @@ static Tags sample() {
 
 TEST_CASE("parse_id3v2 reads UTF-8, UTF-16 and latin1 text frames") {
     for (int enc : {0, 1, 3}) {
-        std::string bytes = build_id3v2_for_test(sample(), enc);
+        string bytes = build_id3v2_for_test(sample(), enc);
         Tags t; size_t size = 0;
         REQUIRE(parse_id3v2(bytes, t, &size));
         REQUIRE(size == bytes.size());
@@ -27,7 +27,7 @@ TEST_CASE("parse_id3v2 reads UTF-8, UTF-16 and latin1 text frames") {
 }
 
 TEST_CASE("parse_id3v2 re-decodes a UTF-8 (encoding 3) frame that isn't valid UTF-8 as Windows-1252") {
-    Tags raw; raw.title = std::string("Beyonc\xE9 Mix");
+    Tags raw; raw.title = string("Beyonc\xE9 Mix");
     Tags t;
     REQUIRE(parse_id3v2(build_id3v2_for_test(raw, 3), t));
     REQUIRE(t.title == "Beyoncé Mix");
@@ -36,16 +36,16 @@ TEST_CASE("parse_id3v2 re-decodes a UTF-8 (encoding 3) frame that isn't valid UT
 TEST_CASE("parse_id3v2 rejects non-tags and truncated tags") {
     Tags t;
     REQUIRE_FALSE(parse_id3v2("RIFF....", t));
-    std::string bytes = build_id3v2_for_test(sample(), 3);
-    REQUIRE_FALSE(parse_id3v2(std::string_view(bytes).substr(0, 20), t));
+    string bytes = build_id3v2_for_test(sample(), 3);
+    REQUIRE_FALSE(parse_id3v2(string_view(bytes).substr(0, 20), t));
 }
 
 TEST_CASE("read_wav_id3_chunk finds an id3 chunk appended to a WAV") {
     TempDir t;
     auto f = make_audio(t.path / "a.wav", {.subtype = SF_FORMAT_PCM_16, .seconds = 0.05});
-    std::string wav = read_file(f);
-    std::string tag = build_id3v2_for_test(sample(), 3);
-    std::string chunk = "id3 ";
+    string wav = read_file(f);
+    string tag = build_id3v2_for_test(sample(), 3);
+    string chunk = "id3 ";
     uint32_t n = static_cast<uint32_t>(tag.size());
     chunk.append(reinterpret_cast<const char*>(&n), 4);   // little-endian on every target we build
     chunk += tag;
@@ -58,7 +58,7 @@ TEST_CASE("read_wav_id3_chunk finds an id3 chunk appended to a WAV") {
     REQUIRE(got.title == "Café Track");
     REQUIRE(read_wav_id3_chunk(f).empty());
 
-    std::string err;
+    string err;
     auto d = Decoder::open(t.path / "b.wav", err);
     REQUIRE(d);
     REQUIRE(d->tags().artist == "Artist");
@@ -66,7 +66,7 @@ TEST_CASE("read_wav_id3_chunk finds an id3 chunk appended to a WAV") {
 
 TEST_CASE("parse_id3v2 validates footer when v2.4 footer flag is set") {
     // v2.4 tag with footer flag set and footer appended
-    std::string bytes = build_id3v2_for_test(sample(), 3);
+    string bytes = build_id3v2_for_test(sample(), 3);
     bytes[3] = 4;  // change major version to 4
     bytes[5] |= 0x10;  // set footer flag
     // Append 10-byte footer: "3DI" + 7 header bytes (version, flags, size)
@@ -82,7 +82,7 @@ TEST_CASE("parse_id3v2 validates footer when v2.4 footer flag is set") {
 
 TEST_CASE("parse_id3v2 rejects v2.4 footer flag without footer bytes") {
     // v2.4 tag with footer flag set but no footer appended
-    std::string bytes = build_id3v2_for_test(sample(), 3);
+    string bytes = build_id3v2_for_test(sample(), 3);
     bytes[3] = 4;  // change major version to 4
     bytes[5] |= 0x10;  // set footer flag (but don't append footer)
 

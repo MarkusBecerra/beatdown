@@ -7,26 +7,25 @@
 #include <limits>
 #include <vector>
 #include "core/decoder.hpp"
-
-namespace fs = std::filesystem;
+#include "core/std_names.hpp"
 
 namespace beatdown {
 
 namespace {
 
-double db20(double linear) { return 20.0 * std::log10(linear); }
+double db20(double linear) { return 20.0 * log10(linear); }
 
-std::string db_str(double db) {
-    if (!std::isfinite(db)) return db < 0 ? "-inf" : "inf";
+string db_str(double db) {
+    if (!isfinite(db)) return db < 0 ? "-inf" : "inf";
     char buf[32];
-    std::snprintf(buf, sizeof buf, "%.2f", db);
+    snprintf(buf, sizeof buf, "%.2f", db);
     return buf;
 }
 
 // --- FLAC: full frame-by-frame comparison, at whatever precision the source format calls for ---
 
-std::string verify_flac_content(const fs::path& out, const fs::path& source) {
-    std::string err;
+string verify_flac_content(const fs::path& out, const fs::path& source) {
+    string err;
     auto so = Decoder::open(source, err);
     if (!so) return "audio content: cannot reopen source: " + err;
     auto od = Decoder::open(out, err);
@@ -35,7 +34,7 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
     const AudioInfo& si = so->info();
     const AudioInfo& oi = od->info();
     if (oi.channels != si.channels)
-        return "audio content: channel count " + std::to_string(oi.channels) + ", expected " + std::to_string(si.channels);
+        return "audio content: channel count " + to_string(oi.channels) + ", expected " + to_string(si.channels);
     const int channels = si.channels;
     const int64_t kFrames = 4096;
     int64_t frame_index = 0;
@@ -47,7 +46,7 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
         // (FlacEncoder sets SFC_SET_CLIPPING), so that clamped value -- not the raw source
         // sample -- is what a correct encode is supposed to produce.
         const double kTolerance = 2.0 / 8388608.0;
-        std::vector<float> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
+        vector<float> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
         for (;;) {
             int64_t sn = so->read_float(sbuf.data(), kFrames);
             int64_t on = od->read_float(obuf.data(), kFrames);
@@ -56,12 +55,12 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
                 for (int c = 0; c < channels; ++c) {
                     double a = std::clamp(static_cast<double>(sbuf[static_cast<size_t>(i) * channels + c]), -1.0, 1.0);
                     double b = obuf[static_cast<size_t>(i) * channels + c];
-                    if (std::fabs(a - b) > kTolerance)
-                        return "audio content: mismatch at frame " + std::to_string(frame_index + i) + ", channel " + std::to_string(c);
+                    if (fabs(a - b) > kTolerance)
+                        return "audio content: mismatch at frame " + to_string(frame_index + i) + ", channel " + to_string(c);
                 }
             }
             if (sn != on)
-                return "audio content: frame count " + std::to_string(frame_index + on) + ", expected " + std::to_string(frame_index + sn);
+                return "audio content: frame count " + to_string(frame_index + on) + ", expected " + to_string(frame_index + sn);
             if (sn == 0) break;
             frame_index += n;
         }
@@ -69,7 +68,7 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
         // 32-bit integer sources are truncated to 24-bit FLAC (libsndfile's ceiling): the low
         // byte can round; <=24-bit sources round-trip bit-exact.
         bool loose = si.bits >= 32;
-        std::vector<int32_t> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
+        vector<int32_t> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
         for (;;) {
             int64_t sn = so->read_int(sbuf.data(), kFrames);
             int64_t on = od->read_int(obuf.data(), kFrames);
@@ -78,11 +77,11 @@ std::string verify_flac_content(const fs::path& out, const fs::path& source) {
                 for (int c = 0; c < channels; ++c) {
                     int64_t a = sbuf[static_cast<size_t>(i) * channels + c], b = obuf[static_cast<size_t>(i) * channels + c];
                     bool bad = loose ? (std::llabs(a - b) >= 256) : (a != b);
-                    if (bad) return "audio content: mismatch at frame " + std::to_string(frame_index + i) + ", channel " + std::to_string(c);
+                    if (bad) return "audio content: mismatch at frame " + to_string(frame_index + i) + ", channel " + to_string(c);
                 }
             }
             if (sn != on)
-                return "audio content: frame count " + std::to_string(frame_index + on) + ", expected " + std::to_string(frame_index + sn);
+                return "audio content: frame count " + to_string(frame_index + on) + ", expected " + to_string(frame_index + sn);
             if (sn == 0) break;
             frame_index += n;
         }
@@ -118,7 +117,7 @@ struct Lowpass {
         if (fc >= 0.45 * rate) return;
         active = true;
         double w0 = 2.0 * 3.14159265358979323846 * fc / rate;
-        double cs = std::cos(w0), sn = std::sin(w0);
+        double cs = cos(w0), sn = sin(w0);
         double alpha = sn / (2.0 * 0.70710678118654752440);
         double a0 = 1.0 + alpha;
         b0 = (1.0 - cs) / 2.0 / a0;
@@ -148,8 +147,8 @@ struct SideStats {
     int channels = 0, rate = 0;
     int64_t total_frames = 0;
     double peak = 0.0;
-    std::vector<double> block_sumsq[2];
-    std::vector<int64_t> block_count[2];
+    vector<double> block_sumsq[2];
+    vector<int64_t> block_count[2];
     Lowpass lp[2];
 
     void init(int ch, int r, double fc) {
@@ -161,7 +160,7 @@ struct SideStats {
         int64_t block = total_frames / rate;
         for (int c = 0; c < channels; ++c) {
             double raw = frame[c];
-            peak = std::max(peak, std::fabs(raw));
+            peak = std::max(peak, fabs(raw));
             double v = lp[c].process(raw);
             auto& sums = block_sumsq[c];
             auto& counts = block_count[c];
@@ -186,19 +185,19 @@ struct SideStats {
     }
     double overall_db(int c) const {
         int64_t n = total_count(c);
-        return n > 0 ? db20(std::sqrt(total_sumsq(c) / n)) : -std::numeric_limits<double>::infinity();
+        return n > 0 ? db20(sqrt(total_sumsq(c) / n)) : -numeric_limits<double>::infinity();
     }
     size_t num_blocks() const { return block_sumsq[0].size(); }
     double block_db(int c, size_t block) const {
         int64_t n = block_count[c][block];
-        return n > 0 ? db20(std::sqrt(block_sumsq[c][block] / static_cast<double>(n))) : -std::numeric_limits<double>::infinity();
+        return n > 0 ? db20(sqrt(block_sumsq[c][block] / static_cast<double>(n))) : -numeric_limits<double>::infinity();
     }
 };
 
 void accumulate(Decoder& d, SideStats& st, double lowpass_fc) {
     st.init(d.info().channels, d.info().sample_rate, lowpass_fc);
     const int64_t kFrames = 4096;
-    std::vector<float> buf(static_cast<size_t>(kFrames) * st.channels);
+    vector<float> buf(static_cast<size_t>(kFrames) * st.channels);
     int64_t n;
     while ((n = d.read_float(buf.data(), kFrames)) > 0)
         for (int64_t i = 0; i < n; ++i) st.add_frame(&buf[static_cast<size_t>(i) * st.channels]);
@@ -206,7 +205,7 @@ void accumulate(Decoder& d, SideStats& st, double lowpass_fc) {
 
 ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& source) {
     ContentCheckResult r;
-    std::string err;
+    string err;
     auto sd = Decoder::open(source, err);
     if (!sd) {
         r.error = "audio content: cannot reopen source: " + err;
@@ -221,7 +220,7 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     const AudioInfo& si = sd->info();
     const AudioInfo& oi = od->info();
     if (oi.channels != si.channels) {
-        r.error = "audio content: channel count " + std::to_string(oi.channels) + ", expected " + std::to_string(si.channels);
+        r.error = "audio content: channel count " + to_string(oi.channels) + ", expected " + to_string(si.channels);
         return r;
     }
 
@@ -243,10 +242,10 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // round(source_frames_read * out_rate / in_rate).
     bool same_rate = oi.sample_rate == si.sample_rate;
     int64_t expected = same_rate ? src.total_frames
-                                  : std::llround(static_cast<double>(src.total_frames) * oi.sample_rate / si.sample_rate);
+                                  : llround(static_cast<double>(src.total_frames) * oi.sample_rate / si.sample_rate);
     int64_t diff = std::llabs(mp3.total_frames - expected);
     if (same_rate ? (diff != 0) : (diff > 2)) {
-        r.error = "audio content: length " + std::to_string(mp3.total_frames) + " frames, expected " + std::to_string(expected) +
+        r.error = "audio content: length " + to_string(mp3.total_frames) + " frames, expected " + to_string(expected) +
                   (same_rate ? "" : " (±2)");
         return r;
     }
@@ -258,12 +257,12 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
         double src_db = src.overall_db(c), out_db = mp3.overall_db(c);
         if (src_db < -60.0) {
             if (out_db >= -50.0) {
-                r.error = "audio content: channel " + std::to_string(c) + " decoded RMS " + db_str(out_db) +
+                r.error = "audio content: channel " + to_string(c) + " decoded RMS " + db_str(out_db) +
                           " dBFS, expected below -50.00 dBFS (source is near-silent, " + db_str(src_db) + " dBFS)";
                 return r;
             }
-        } else if (std::fabs(out_db - src_db) > 0.5) {
-            r.error = "audio content: channel " + std::to_string(c) + " RMS " + db_str(out_db) + " dBFS, expected " + db_str(src_db) +
+        } else if (fabs(out_db - src_db) > 0.5) {
+            r.error = "audio content: channel " + to_string(c) + " RMS " + db_str(out_db) + " dBFS, expected " + db_str(src_db) +
                       " dBFS (±0.5 dB)";
             return r;
         }
@@ -278,8 +277,8 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
                 double src_db = src.block_db(c, k);
                 if (src_db <= -50.0) continue;
                 double out_db = mp3.block_db(c, k);
-                if (std::fabs(out_db - src_db) > 1.0) {
-                    r.error = "audio content: 1 s block " + std::to_string(k) + " channel " + std::to_string(c) + " RMS " +
+                if (fabs(out_db - src_db) > 1.0) {
+                    r.error = "audio content: 1 s block " + to_string(k) + " channel " + to_string(c) + " RMS " +
                               db_str(out_db) + " dBFS, expected " + db_str(src_db) + " dBFS (±1.0 dB)";
                     return r;
                 }

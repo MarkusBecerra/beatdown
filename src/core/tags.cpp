@@ -2,19 +2,19 @@
 
 namespace beatdown {
 
-Tags tags_from_filename(std::string_view stem) {
+Tags tags_from_filename(string_view stem) {
     Tags t;
     auto pos = stem.find(" - ");
-    if (pos == std::string_view::npos) {
-        t.title = std::string(stem);
+    if (pos == string_view::npos) {
+        t.title = string(stem);
         return t;
     }
-    t.artist = std::string(stem.substr(0, pos));
-    t.title = std::string(stem.substr(pos + 3));
+    t.artist = string(stem.substr(0, pos));
+    t.title = string(stem.substr(pos + 3));
     return t;
 }
 
-std::string strip_suffixes(std::string title, const std::vector<std::string>& suffixes) {
+string strip_suffixes(string title, const vector<string>& suffixes) {
     for (const auto& s : suffixes) {
         if (s.empty() || title.size() <= s.size()) continue;
         if (title.compare(title.size() - s.size(), s.size(), s) == 0)

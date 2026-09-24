@@ -17,9 +17,9 @@ SpaceCheck check_space(int64_t estimated, int64_t available) {
     return c;
 }
 
-int64_t available_bytes(const std::filesystem::path& dir, std::string& error) {
-    std::error_code ec;
-    auto sp = std::filesystem::space(dir, ec);
+int64_t available_bytes(const fs::path& dir, string& error) {
+    error_code ec;
+    auto sp = fs::space(dir, ec);
     if (ec) { error = "cannot read free space of " + path_to_utf8(dir) + ": " + ec.message(); return 0; }
     return static_cast<int64_t>(sp.available);
 }

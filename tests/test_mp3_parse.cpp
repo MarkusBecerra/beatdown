@@ -8,10 +8,10 @@ using namespace beatdown;
 
 TEST_CASE("parse_mp3 counts CBR frames and computes duration") {
     TempDir t;
-    std::string data;
+    string data;
     for (int i = 0; i < 100; ++i) data += build_mp3_frame_for_test(320, 44100, i % 2 == 1, false, nullptr);
     write_bytes(t.path / "a.mp3", data);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.audio_frames == 100);
     REQUIRE(info.sample_rate == 44100);
@@ -25,9 +25,9 @@ TEST_CASE("parse_mp3 counts CBR frames and computes duration") {
 TEST_CASE("parse_mp3 skips a leading ID3v2 tag and reads it") {
     TempDir t;
     Tags tags; tags.title = "T"; tags.artist = "A";
-    std::string data = build_id3v2_for_test(tags, 3) + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
+    string data = build_id3v2_for_test(tags, 3) + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
     write_bytes(t.path / "a.mp3", data);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.id3v2_size == build_id3v2_for_test(tags, 3).size());
     REQUIRE(info.audio_frames == 1);
@@ -36,9 +36,9 @@ TEST_CASE("parse_mp3 skips a leading ID3v2 tag and reads it") {
 
 TEST_CASE("parse_mp3 recognises an Info/Xing frame and excludes it from audio") {
     TempDir t;
-    std::string data = build_mp3_frame_for_test(320, 48000, false, false, "Info") + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
+    string data = build_mp3_frame_for_test(320, 48000, false, false, "Info") + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
     write_bytes(t.path / "a.mp3", data);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.has_xing);
     REQUIRE(info.audio_frames == 1);
@@ -46,9 +46,9 @@ TEST_CASE("parse_mp3 recognises an Info/Xing frame and excludes it from audio") 
 
 TEST_CASE("parse_mp3 sees mixed bitrates as non-CBR and mono as 1 channel") {
     TempDir t;
-    std::string data = build_mp3_frame_for_test(320, 44100, false, true, nullptr) + build_mp3_frame_for_test(192, 44100, false, true, nullptr);
+    string data = build_mp3_frame_for_test(320, 44100, false, true, nullptr) + build_mp3_frame_for_test(192, 44100, false, true, nullptr);
     write_bytes(t.path / "a.mp3", data);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE_FALSE(info.cbr(320));
     REQUIRE(info.bitrates.size() == 2);
@@ -57,8 +57,8 @@ TEST_CASE("parse_mp3 sees mixed bitrates as non-CBR and mono as 1 channel") {
 
 TEST_CASE("parse_mp3 reports trailing garbage") {
     TempDir t;
-    write_bytes(t.path / "a.mp3", build_mp3_frame_for_test(320, 44100, false, false, nullptr) + std::string(300, 'x'));
-    Mp3Info info; std::string err;
+    write_bytes(t.path / "a.mp3", build_mp3_frame_for_test(320, 44100, false, false, nullptr) + string(300, 'x'));
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.trailing_bytes == 300);
 }
@@ -66,22 +66,22 @@ TEST_CASE("parse_mp3 reports trailing garbage") {
 TEST_CASE("parse_mp3 fails on empty file") {
     TempDir t;
     write_bytes(t.path / "e.mp3", "");
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE_FALSE(parse_mp3(t.path / "e.mp3", info, err));
 }
 
 TEST_CASE("parse_mp3 fails on non-MP3 data") {
     TempDir t;
     write_bytes(t.path / "n.mp3", "not an mp3 at all");
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE_FALSE(parse_mp3(t.path / "n.mp3", info, err));
 }
 
 TEST_CASE("parse_mp3 handles CRC-protected Info frame") {
     TempDir t;
-    std::string data = build_mp3_frame_for_test(320, 48000, false, false, "Info", true) + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
+    string data = build_mp3_frame_for_test(320, 48000, false, false, "Info", true) + build_mp3_frame_for_test(320, 48000, false, false, nullptr);
     write_bytes(t.path / "a.mp3", data);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "a.mp3", info, err));
     REQUIRE(info.has_xing);
     REQUIRE(info.audio_frames == 1);

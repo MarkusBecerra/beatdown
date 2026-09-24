@@ -19,23 +19,23 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 
 void encode_to(const fs::path& src, const fs::path& out, EncodeSettings s) {
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
     REQUIRE(d);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     REQUIRE(make_encoder(s)->encode(*d, out, {}, cancel, nullptr) == "");
 }
 
 // Writes a mono signal duplicated into both channels, mirroring fixtures.cpp's make_audio.
-fs::path write_signal(const fs::path& file, int rate, const std::vector<double>& mono) {
+fs::path write_signal(const fs::path& file, int rate, const vector<double>& mono) {
     fs::create_directories(file.parent_path());
     SF_INFO info{};
     info.samplerate = rate;
     info.channels = 2;
     info.format = SF_FORMAT_WAV | SF_FORMAT_PCM_24;
     SNDFILE* sf = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
-    if (!sf) throw std::runtime_error("write_signal: open failed");
-    std::vector<float> buf(mono.size() * 2);
+    if (!sf) throw runtime_error("write_signal: open failed");
+    vector<float> buf(mono.size() * 2);
     for (size_t i = 0; i < mono.size(); ++i) buf[i * 2] = buf[i * 2 + 1] = static_cast<float>(mono[i]);
     sf_writef_float(sf, buf.data(), static_cast<sf_count_t>(mono.size()));
     sf_close(sf);
@@ -50,8 +50,8 @@ fs::path write_signal(const fs::path& file, int rate, const std::vector<double>&
 fs::path make_clipped_wave(const fs::path& file, double seconds = 1.0, int rate = 48000) {
     const double clip = amp_for_dbfs(-0.1);
     int64_t n = static_cast<int64_t>(rate * seconds);
-    std::vector<double> x(n);
-    for (int64_t i = 0; i < n; ++i) x[i] = std::sin(2.0 * kPi * 440.0 * i / rate) >= 0.0 ? clip : -clip;
+    vector<double> x(n);
+    for (int64_t i = 0; i < n; ++i) x[i] = sin(2.0 * kPi * 440.0 * i / rate) >= 0.0 ? clip : -clip;
     return write_signal(file, rate, x);
 }
 
@@ -68,7 +68,7 @@ struct Biquad {
 };
 Biquad make_highpass(double rate, double fc, double q = 0.70710678118654752440) {
     Biquad bq;
-    double w0 = 2.0 * kPi * fc / rate, cs = std::cos(w0), sn = std::sin(w0);
+    double w0 = 2.0 * kPi * fc / rate, cs = cos(w0), sn = sin(w0);
     double alpha = sn / (2.0 * q), a0 = 1.0 + alpha;
     bq.b0 = (1.0 + cs) / 2.0 / a0;
     bq.b1 = -(1.0 + cs) / a0;
@@ -77,21 +77,21 @@ Biquad make_highpass(double rate, double fc, double q = 0.70710678118654752440) 
     bq.a2 = (1.0 - alpha) / a0;
     return bq;
 }
-std::vector<double> highpass4(double rate, double fc, std::vector<double> xs) {
+vector<double> highpass4(double rate, double fc, vector<double> xs) {
     Biquad a = make_highpass(rate, fc), b = make_highpass(rate, fc);
     for (auto& x : xs) x = b.process(a.process(x));
     return xs;
 }
-double rms_of(const std::vector<double>& xs) {
+double rms_of(const vector<double>& xs) {
     double s = 0.0;
     for (double v : xs) s += v * v;
-    return std::sqrt(s / std::max<size_t>(1, xs.size()));
+    return sqrt(s / std::max<size_t>(1, xs.size()));
 }
 
-std::vector<double> gen_white(int rate, double seconds, double rms_db, unsigned seed = 12345) {
-    std::mt19937 rng(seed);
-    std::normal_distribution<double> dist(0.0, 1.0);
-    std::vector<double> x(static_cast<size_t>(rate * seconds));
+vector<double> gen_white(int rate, double seconds, double rms_db, unsigned seed = 12345) {
+    mt19937 rng(seed);
+    normal_distribution<double> dist(0.0, 1.0);
+    vector<double> x(static_cast<size_t>(rate * seconds));
     for (auto& v : x) v = dist(rng);
     double k = amp_for_dbfs(rms_db) / rms_of(x);
     for (auto& v : x) v *= k;
@@ -100,16 +100,16 @@ std::vector<double> gen_white(int rate, double seconds, double rms_db, unsigned 
 
 // A 1 kHz sine at `base_db` peak, with [start, start+len) replaced by high-passed noise at
 // `block_db` RMS -- a fixed-frequency stand-in for a "riser" block of bright material.
-std::vector<double> gen_riser_block(int rate, double seconds, double base_db, double block_db, double fc,
+vector<double> gen_riser_block(int rate, double seconds, double base_db, double block_db, double fc,
                                      double start_s, double len_s) {
     int64_t n = static_cast<int64_t>(rate * seconds);
     double A = amp_for_dbfs(base_db);
-    std::vector<double> x(static_cast<size_t>(n));
-    for (int64_t i = 0; i < n; ++i) x[static_cast<size_t>(i)] = A * std::sin(2.0 * kPi * 1000.0 * i / rate);
+    vector<double> x(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; ++i) x[static_cast<size_t>(i)] = A * sin(2.0 * kPi * 1000.0 * i / rate);
     int64_t st = static_cast<int64_t>(rate * start_s), ln = static_cast<int64_t>(rate * len_s);
-    std::mt19937 rng(777);
-    std::normal_distribution<double> dist(0.0, 1.0);
-    std::vector<double> noise(static_cast<size_t>(ln));
+    mt19937 rng(777);
+    normal_distribution<double> dist(0.0, 1.0);
+    vector<double> noise(static_cast<size_t>(ln));
     for (auto& v : noise) v = dist(rng);
     noise = highpass4(rate, fc, noise);
     double k = amp_for_dbfs(block_db) / rms_of(noise);
@@ -118,32 +118,32 @@ std::vector<double> gen_riser_block(int rate, double seconds, double base_db, do
 }
 
 // A quiet high-passed noise "hat" intro (RMS `intro_db`) followed by a louder 1 kHz sine.
-std::vector<double> gen_hp_intro(int rate, double intro_s, double total_s, double intro_db, double fc, double loud_db) {
+vector<double> gen_hp_intro(int rate, double intro_s, double total_s, double intro_db, double fc, double loud_db) {
     int64_t n = static_cast<int64_t>(rate * total_s), intro = static_cast<int64_t>(rate * intro_s);
-    std::mt19937 rng(999);
-    std::normal_distribution<double> dist(0.0, 1.0);
-    std::vector<double> hp(static_cast<size_t>(intro));
+    mt19937 rng(999);
+    normal_distribution<double> dist(0.0, 1.0);
+    vector<double> hp(static_cast<size_t>(intro));
     for (auto& v : hp) v = dist(rng);
     hp = highpass4(rate, fc, hp);
     double k = amp_for_dbfs(intro_db) / rms_of(hp);
-    std::vector<double> x(static_cast<size_t>(n));
+    vector<double> x(static_cast<size_t>(n));
     for (int64_t i = 0; i < intro; ++i) x[static_cast<size_t>(i)] = hp[static_cast<size_t>(i)] * k;
     double A = amp_for_dbfs(loud_db);
-    for (int64_t i = intro; i < n; ++i) x[static_cast<size_t>(i)] = A * std::sin(2.0 * kPi * 1000.0 * (i - intro) / rate);
+    for (int64_t i = intro; i < n; ++i) x[static_cast<size_t>(i)] = A * sin(2.0 * kPi * 1000.0 * (i - intro) / rate);
     return x;
 }
 
 // A decaying percussive one-shot: 150 -> 50 Hz sweep under an exponential amplitude decay.
-std::vector<double> gen_kick(int rate, double seconds, double peak_db, double tau) {
+vector<double> gen_kick(int rate, double seconds, double peak_db, double tau) {
     int64_t n = static_cast<int64_t>(rate * seconds);
     double A = amp_for_dbfs(peak_db);
-    std::vector<double> x(static_cast<size_t>(n));
+    vector<double> x(static_cast<size_t>(n));
     double phase = 0.0;
     for (int64_t i = 0; i < n; ++i) {
         double t = static_cast<double>(i) / rate;
-        double f = 50.0 + 100.0 * std::exp(-t / 0.02);
+        double f = 50.0 + 100.0 * exp(-t / 0.02);
         phase += 2.0 * kPi * f / rate;
-        x[static_cast<size_t>(i)] = A * std::exp(-t / tau) * std::sin(phase);
+        x[static_cast<size_t>(i)] = A * exp(-t / tau) * sin(phase);
     }
     return x;
 }
@@ -162,8 +162,8 @@ TEST_CASE("verify_content passes a good FLAC encode (24-bit, 16-bit, float32 and
     EncodeSettings s;
     s.format = Format::Flac;
     for (int sub : {SF_FORMAT_PCM_24, SF_FORMAT_PCM_16, SF_FORMAT_FLOAT, SF_FORMAT_PCM_32}) {
-        auto src = make_audio(t.path / (std::to_string(sub) + ".wav"), {.subtype = sub, .seconds = 0.5});
-        auto out = t.path / (std::to_string(sub) + ".flac");
+        auto src = make_audio(t.path / (to_string(sub) + ".wav"), {.subtype = sub, .seconds = 0.5});
+        auto out = t.path / (to_string(sub) + ".flac");
         encode_to(src, out, s);
         REQUIRE(verify_content(out, s, src).error == "");
     }
@@ -288,7 +288,7 @@ TEST_CASE("verify_content fails a truncated MP3 with a length mismatch") {
     auto src = make_audio(t.path / "a.wav", {.seconds = 3.0});
     EncodeSettings s;
     encode_to(src, t.path / "a.mp3", s);
-    std::string data = read_file(t.path / "a.mp3");
+    string data = read_file(t.path / "a.mp3");
     write_bytes(t.path / "cut.mp3", data.substr(0, data.size() * 2 / 3));
     auto r = verify_content(t.path / "cut.mp3", s, src);
     REQUIRE_THAT(r.error, ContainsSubstring("audio content"));

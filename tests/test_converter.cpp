@@ -14,17 +14,17 @@ using Catch::Matchers::ContainsSubstring;
 static Job job(const fs::path& src, const fs::path& out) { Job j; j.source = src; j.output = out; j.source_bytes = static_cast<int64_t>(fs::file_size(src)); return j; }
 static Options opts(const fs::path& dst) { Options o; o.destination = dst; return o; }
 static bool has_temp_files(const fs::path& dir) {
-    for (auto& e : fs::directory_iterator(dir)) if (e.path().filename().string().find(".part") != std::string::npos) return true;
+    for (auto& e : fs::directory_iterator(dir)) if (e.path().filename().string().find(".part") != string::npos) return true;
     return false;
 }
 
 // ".beatdown-<name>." + 8 hex digits + ".part"
-static bool is_temp_name_for(const std::string& temp, const std::string& name) {
-    const std::string prefix = ".beatdown-" + name + ".", suffix = ".part";
+static bool is_temp_name_for(const string& temp, const string& name) {
+    const string prefix = ".beatdown-" + name + ".", suffix = ".part";
     if (temp.size() != prefix.size() + 8 + suffix.size()) return false;
     if (!temp.starts_with(prefix) || !temp.ends_with(suffix)) return false;
     for (size_t i = prefix.size(); i < prefix.size() + 8; ++i)
-        if (!std::isxdigit(static_cast<unsigned char>(temp[i]))) return false;
+        if (!isxdigit(static_cast<unsigned char>(temp[i]))) return false;
     return true;
 }
 
@@ -57,9 +57,9 @@ TEST_CASE("convert_one produces a verified MP3, removes the temp file and copies
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.5});
     fs::create_directories(t.path / "out");
-    auto stamp = fs::file_time_type::clock::now() - std::chrono::hours(24 * 30);
+    auto stamp = fs::file_time_type::clock::now() - chrono::hours(24 * 30);
     fs::last_write_time(src, stamp);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(r.error == "");
     REQUIRE(r.outcome == Outcome::Converted);
@@ -71,7 +71,7 @@ TEST_CASE("convert_one produces a verified MP3, removes the temp file and copies
     // generic chrono stringifier can't format (ambiguous operator<<) — so any macro that
     // decomposes the time_points themselves fails to compile, pass or fail. A 2 s tolerance
     // also covers filesystems that round last_write_time to whole seconds.
-    auto mtime_diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    auto mtime_diff_ms = chrono::duration_cast<chrono::milliseconds>(
         fs::last_write_time(t.path / "out/a.mp3") - fs::last_write_time(src)).count();
     REQUIRE(mtime_diff_ms < 2000);
     REQUIRE(mtime_diff_ms > -2000);
@@ -82,7 +82,7 @@ TEST_CASE("convert_one fails a corrupt source with a reason and leaves nothing b
     TempDir t;
     write_bytes(t.path / "src/bad.wav", kCorruptWav);
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(t.path / "src/bad.wav", t.path / "out/bad.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(r.outcome == Outcome::Failed);
     REQUIRE_FALSE(r.error.empty());
@@ -94,7 +94,7 @@ TEST_CASE("convert_one cancelled leaves no output or temp file") {
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 5.0});
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{true};
+    atomic<bool> cancel{true};
     FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(r.outcome == Outcome::Cancelled);
     REQUIRE_FALSE(fs::exists(t.path / "out/a.mp3"));
@@ -105,7 +105,7 @@ TEST_CASE("convert_one creates missing sub-folders of the output and replaces an
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2});
     write_bytes(t.path / "out/sub/a.mp3", "old");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     Options o = opts(t.path / "out"); o.overwrite = true;
     FileResult r = convert_one(job(src, t.path / "out/sub/a.mp3"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
@@ -114,7 +114,7 @@ TEST_CASE("convert_one creates missing sub-folders of the output and replaces an
 
 TEST_CASE("resolve_tags prefers source tags and falls back to the filename when asked") {
     TempDir t;
-    std::string err;
+    string err;
     auto untagged = Decoder::open(make_audio(t.path / "simple fact - slipz Mastered_Master.wav", {.seconds = 0.1}), err);
     Options o;
     REQUIRE(resolve_tags(*untagged, o).empty());
@@ -134,10 +134,10 @@ TEST_CASE("convert_one writes the derived tags into the MP3") {
     auto src = make_audio(t.path / "src/simple fact - slipz Mastered_Master.wav", {.seconds = 0.2});
     fs::create_directories(t.path / "out");
     Options o = opts(t.path / "out"); o.tag_from_name = true; o.strip_suffixes = {" Mastered_Master"};
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/simple fact - slipz Mastered_Master.mp3"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(r.job.output, info, err));
     REQUIRE(info.tags.artist == "simple fact");
     REQUIRE(info.tags.title == "slipz");
@@ -145,7 +145,7 @@ TEST_CASE("convert_one writes the derived tags into the MP3") {
 
 // A WAV whose raw INFO title is Windows-1252 ("Beyonc\xE9 Mix"), as an older Windows tool writes it.
 static fs::path cp1252_titled_wav(const fs::path& file) {
-    Tags raw; raw.title = std::string("Beyonc\xE9 Mix");
+    Tags raw; raw.title = string("Beyonc\xE9 Mix");
     return make_audio(file, {.seconds = 0.2, .tags = raw});
 }
 
@@ -153,10 +153,10 @@ TEST_CASE("convert_one writes a Windows-1252 INFO title into the MP3 as proper t
     TempDir t;
     auto src = cp1252_titled_wav(t.path / "src/a.wav");
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(r.outcome == Outcome::Converted);
-    Mp3Info info; std::string err;
+    Mp3Info info; string err;
     REQUIRE(parse_mp3(t.path / "out/a.mp3", info, err));
     REQUIRE(info.tags.title == "Beyoncé Mix");
 }
@@ -166,10 +166,10 @@ TEST_CASE("convert_one writes a Windows-1252 INFO title into the FLAC as proper 
     auto src = cp1252_titled_wav(t.path / "src/a.wav");
     fs::create_directories(t.path / "out");
     Options o = opts(t.path / "out"); o.encode.format = Format::Flac;
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.flac"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
-    std::string err;
+    string err;
     auto d = Decoder::open(t.path / "out/a.flac", err);
     REQUIRE(d);
     REQUIRE(d->tags().title == "Beyoncé Mix");
@@ -181,14 +181,14 @@ TEST_CASE("convert_one writes a Windows-1252 INFO title into the FLAC as proper 
 // sanitize_utf8 must replace it (and its sibling U+FFFE) with U+FFFD before either encoder sees it.
 TEST_CASE("convert_one replaces the FFFE/FFFF noncharacters libFLAC rejects instead of crashing") {
     TempDir t;
-    Tags raw; raw.title = std::string("Mix \xEF\xBF\xBF");
+    Tags raw; raw.title = string("Mix \xEF\xBF\xBF");
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2, .tags = raw});
     fs::create_directories(t.path / "out");
     Options o = opts(t.path / "out"); o.encode.format = Format::Flac;
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.flac"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
-    std::string err;
+    string err;
     auto d = Decoder::open(t.path / "out/a.flac", err);
     REQUIRE(d);
     REQUIRE(d->tags().title == "Mix \xEF\xBF\xBD");
@@ -203,7 +203,7 @@ TEST_CASE("convert_one converts a very short (0.05 s) source at 128 kbps") {
     fs::create_directories(t.path / "out");
     Options o = opts(t.path / "out");
     o.encode.bitrate = 128;
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.mp3"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
 }
@@ -213,7 +213,7 @@ TEST_CASE("convert_one produces FLAC when asked") {
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.2});
     fs::create_directories(t.path / "out");
     Options o = opts(t.path / "out"); o.encode.format = Format::Flac;
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.flac"), o, cancel);
     REQUIRE(r.outcome == Outcome::Converted);
     REQUIRE(fs::exists(t.path / "out/a.flac"));
@@ -223,7 +223,7 @@ TEST_CASE("convert_one sets peak_dbfs for MP3 outputs and leaves it empty for FL
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 0.3});
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
 
     FileResult mp3r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(mp3r.outcome == Outcome::Converted);
@@ -241,7 +241,7 @@ TEST_CASE("convert_one refuses an MP3 renamed to .wav, for both output formats")
     TempDir t;
     auto real_src = make_audio(t.path / "real.wav", {.seconds = 0.3});
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult mp3r = convert_one(job(real_src, t.path / "out/real.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(mp3r.outcome == Outcome::Converted);
 
@@ -265,10 +265,10 @@ TEST_CASE("convert_one refuses an MP3 renamed to .wav, for both output formats")
 TEST_CASE("convert_one succeeds when the source's declared frame count exceeds what's actually readable") {
     TempDir t;
     auto src = make_audio(t.path / "src/a.wav", {.seconds = 2.0});
-    std::string data = read_file(src);
+    string data = read_file(src);
     write_bytes(src, data.substr(0, data.size() - 2000));  // well under verify_output's 1 s tolerance
     fs::create_directories(t.path / "out");
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     FileResult r = convert_one(job(src, t.path / "out/a.mp3"), opts(t.path / "out"), cancel);
     REQUIRE(r.outcome == Outcome::Converted);
 }

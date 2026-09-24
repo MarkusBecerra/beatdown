@@ -1,8 +1,3 @@
-#include <atomic>
-#include <cstdlib>
-#include <exception>
-#include <iostream>
-#include <string>
 #include <CLI/CLI.hpp>
 #include "core/options.hpp"
 #include "core/platform/platform.hpp"
@@ -11,34 +6,45 @@
 #include "core/unicode.hpp"
 #include "core/version.hpp"
 
+// main.cpp's own code lives at global scope (not inside `namespace beatdown`), so it can't reach
+// core/std_names.hpp's beatdown-scoped using-declarations; core/report.hpp pulls that header in
+// transitively for its types, so these just re-expose the handful of std:: names this file itself
+// needs, the same way tests/fixtures.hpp does for the test binary's global-scope helpers.
+using std::atomic;
+using std::cerr;
+using std::cout;
+using std::exception;
+using std::getenv;
+using std::string;
+
 namespace fs = std::filesystem;
 
 // "~/x" is common inside quotes in the PRD's own examples, where the shell does not expand it.
 // B1: built with beatdown::path_from_utf8, never the deprecated fs::u8path; HOME/USERPROFILE is
 // used as-is since it's the platform's native string, not UTF-8 bytes to reinterpret.
-static fs::path expand_tilde(const std::string& s) {
+static fs::path expand_tilde(const string& s) {
     if (s.size() >= 2 && s[0] == '~' && (s[1] == '/' || s[1] == '\\')) {
 #ifdef _WIN32
-        const char* home = std::getenv("USERPROFILE");
+        const char* home = getenv("USERPROFILE");
 #else
-        const char* home = std::getenv("HOME");
+        const char* home = getenv("HOME");
 #endif
         if (home) return fs::path(home) / beatdown::path_from_utf8(s.substr(2));
     }
     return beatdown::path_from_utf8(s);
 }
 
-static std::atomic<bool> g_cancel{false};
+static atomic<bool> g_cancel{false};
 
 int main(int argc, char** argv) {
     beatdown::platform::console_utf8();
     CLI::App app{"Convert a folder of WAV/AIFF/FLAC files to 320 kbps MP3 (or FLAC) for rekordbox.", "beatdown"};
     argv = app.ensure_utf8(argv);
-    app.set_version_flag("--version", std::string("beatdown ") + beatdown::version());
+    app.set_version_flag("--version", string("beatdown ") + beatdown::version());
     app.get_formatter()->column_width(22);
 
     beatdown::Options o;
-    std::string source, destination, format = "mp3";
+    string source, destination, format = "mp3";
     int vbr = -1;
     bool no_recursive = false;
 
@@ -95,13 +101,13 @@ int main(int argc, char** argv) {
         o.recursive = !no_recursive;
 
         beatdown::platform::install_interrupt_handler(g_cancel);
-        beatdown::ConsoleReporter reporter(std::cout, o.quiet, o.verbose);
+        beatdown::ConsoleReporter reporter(cout, o.quiet, o.verbose);
         return beatdown::run(o, reporter, g_cancel);
-    } catch (const std::exception& e) {
-        std::cerr << "beatdown: internal error: " << e.what() << "\n";
+    } catch (const exception& e) {
+        cerr << "beatdown: internal error: " << e.what() << "\n";
         return 1;
     } catch (...) {
-        std::cerr << "beatdown: internal error: unknown exception\n";
+        cerr << "beatdown: internal error: unknown exception\n";
         return 1;
     }
 }

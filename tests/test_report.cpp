@@ -37,10 +37,10 @@ TEST_CASE("ConsoleReporter prints per-file lines and a summary; quiet keeps only
     FileResult bad; bad.job.source = "/src/b.wav"; bad.job.output = "/out/b.mp3"; bad.outcome = Outcome::Failed; bad.error = "RIFF header truncated";
     Summary s; s.converted = 1; s.failed = 1; s.ignored = 2; s.bytes_in = 812'400'000; s.bytes_out = 178'600'000; s.elapsed = 19'000ms; s.failures = {bad};
 
-    std::ostringstream out;
+    ostringstream out;
     ConsoleReporter r(out, false, false);
     r.file(ok); r.file(bad); r.summary(s);
-    std::string text = out.str();
+    string text = out.str();
     REQUIRE_THAT(text, ContainsSubstring("✓ a.mp3"));
     REQUIRE_THAT(text, ContainsSubstring("71.2 MB → 15.9 MB"));
     REQUIRE_THAT(text, ContainsSubstring("6.4s"));
@@ -50,7 +50,7 @@ TEST_CASE("ConsoleReporter prints per-file lines and a summary; quiet keeps only
     REQUIRE_THAT(text, ContainsSubstring("Size 812.4 MB → 178.6 MB (−78%)"));
     REQUIRE_THAT(text, ContainsSubstring("Elapsed 0:19"));
 
-    std::ostringstream q;
+    ostringstream q;
     ConsoleReporter quiet(q, true, false);
     quiet.file(ok); quiet.file(bad); quiet.summary(s);
     REQUIRE_THAT(q.str(), !ContainsSubstring("✓"));
@@ -63,16 +63,16 @@ TEST_CASE("ConsoleReporter prints a dry-run projection and a dry-run summary") {
     Job j; j.source = "/src/a.wav"; j.output = "/out/a.mp3"; j.source_bytes = 71'200'000;
     Summary s; s.dry_run = true; s.would_convert = 1; s.skipped = 0; s.ignored = 0; s.elapsed = 1000ms;
 
-    std::ostringstream out;
+    ostringstream out;
     ConsoleReporter r(out, false, false);
     r.would_convert(j, 15'900'000);
     r.summary(s);
-    std::string text = out.str();
+    string text = out.str();
     REQUIRE_THAT(text, ContainsSubstring("→ a.mp3"));
     REQUIRE_THAT(text, ContainsSubstring("71.2 MB → ~15.9 MB"));
     REQUIRE_THAT(text, ContainsSubstring("Dry run: would convert 1, skip 0, ignore 0 non-audio files"));
 
-    std::ostringstream q;
+    ostringstream q;
     ConsoleReporter quiet(q, true, false);
     quiet.would_convert(j, 15'900'000);
     REQUIRE_THAT(q.str(), !ContainsSubstring("→"));
@@ -81,7 +81,7 @@ TEST_CASE("ConsoleReporter prints a dry-run projection and a dry-run summary") {
 // A3: a disk-full stop is called out distinctly from a plain Ctrl-C interruption.
 TEST_CASE("ConsoleReporter prints a disk-full early stop in the summary") {
     Summary s; s.failed = 1; s.cancelled = 5; s.disk_full = true; s.elapsed = 2000ms;
-    std::ostringstream out;
+    ostringstream out;
     ConsoleReporter r(out, false, false);
     r.summary(s);
     REQUIRE_THAT(out.str(), ContainsSubstring("Stopped early: destination disk is full — 5 not converted"));
@@ -93,7 +93,7 @@ TEST_CASE("ConsoleReporter prints a disk-full early stop in the summary") {
 TEST_CASE("ConsoleReporter recaps every failure at the end of the summary, relative to the source root") {
     Options o; o.source = "/audio-src";
     Plan p;
-    std::ostringstream out;
+    ostringstream out;
     ConsoleReporter r(out, false, false);
     r.plan(p, 2, o);
 
@@ -101,10 +101,10 @@ TEST_CASE("ConsoleReporter recaps every failure at the end of the summary, relat
     Summary s; s.failed = 1; s.failures = {bad};
     r.summary(s);
 
-    std::string text = out.str();
+    string text = out.str();
     REQUIRE_THAT(text, ContainsSubstring("Failed:"));
     // Built with the platform's separator: fs::relative yields "sub\bad.wav" on Windows.
-    std::string rel = path_to_utf8(std::filesystem::path("sub") / "bad.wav");
+    string rel = path_to_utf8(fs::path("sub") / "bad.wav");
     REQUIRE_THAT(text, ContainsSubstring("✗ " + rel + "    RIFF header truncated"));
 }
 
@@ -113,7 +113,7 @@ TEST_CASE("ConsoleReporter recaps every failure at the end of the summary, relat
 TEST_CASE("ConsoleReporter prints the failure recap under --quiet") {
     Options o; o.source = "/audio-src";
     Plan p;
-    std::ostringstream out;
+    ostringstream out;
     ConsoleReporter r(out, true, false);
     r.plan(p, 1, o);
 
@@ -131,18 +131,18 @@ TEST_CASE("ConsoleReporter prints the failure recap under --quiet") {
 TEST_CASE("ConsoleReporter shows the decoded peak on the verbose converted-file line only") {
     FileResult r; r.job.source = "a.wav"; r.job.output = "/out/a.mp3"; r.outcome = Outcome::Converted; r.peak_dbfs = 0.48;
 
-    std::ostringstream verbose_out;
+    ostringstream verbose_out;
     ConsoleReporter verbose(verbose_out, false, true);
     verbose.file(r);
     REQUIRE_THAT(verbose_out.str(), ContainsSubstring("peak +0.48 dBFS"));
 
-    std::ostringstream plain_out;
+    ostringstream plain_out;
     ConsoleReporter plain(plain_out, false, false);
     plain.file(r);
     REQUIRE_THAT(plain_out.str(), !ContainsSubstring("peak"));
 
     FileResult flac; flac.job.source = "a.wav"; flac.job.output = "/out/a.flac"; flac.outcome = Outcome::Converted;
-    std::ostringstream flac_out;
+    ostringstream flac_out;
     ConsoleReporter flac_rep(flac_out, false, true);
     flac_rep.file(flac);
     REQUIRE_THAT(flac_out.str(), !ContainsSubstring("peak"));
@@ -152,8 +152,8 @@ TEST_CASE("ConsoleReporter shows the decoded peak on the verbose converted-file 
 // print next to every other file's two-decimal figure.
 TEST_CASE("ConsoleReporter prints 'peak: silent' instead of -inf dBFS for a silent decode") {
     FileResult r; r.job.source = "a.wav"; r.job.output = "/out/a.mp3"; r.outcome = Outcome::Converted;
-    r.peak_dbfs = -std::numeric_limits<double>::infinity();
-    std::ostringstream out;
+    r.peak_dbfs = -numeric_limits<double>::infinity();
+    ostringstream out;
     ConsoleReporter(out, false, true).file(r);
     REQUIRE_THAT(out.str(), ContainsSubstring("peak: silent"));
     REQUIRE_THAT(out.str(), !ContainsSubstring("inf"));
@@ -163,12 +163,12 @@ TEST_CASE("ConsoleReporter prints 'peak: silent' instead of -inf dBFS for a sile
 // from FileResult.peak_dbfs is a runner concern, covered in test_runner.cpp).
 TEST_CASE("ConsoleReporter prints the hot-files summary line only when Summary.hot is set") {
     Summary hot; hot.converted = 1; hot.hot = 1;
-    std::ostringstream hot_out;
+    ostringstream hot_out;
     ConsoleReporter(hot_out, false, false).summary(hot);
     REQUIRE_THAT(hot_out.str(), ContainsSubstring("1 file(s) decode above +1.0 dBFS — very loud masters; see \"Loud masters\" in the README"));
 
     Summary warm; warm.converted = 1; warm.hot = 0;
-    std::ostringstream warm_out;
+    ostringstream warm_out;
     ConsoleReporter(warm_out, false, false).summary(warm);
     REQUIRE_THAT(warm_out.str(), !ContainsSubstring("very loud masters"));
 }
@@ -182,19 +182,19 @@ TEST_CASE("ConsoleReporter gates the skip line on quiet and verbose/dry-run corr
     Options dry; dry.dry_run = true;
     Options not_dry;   // dry_run = false (default)
 
-    std::ostringstream quiet_dry;
+    ostringstream quiet_dry;
     ConsoleReporter r1(quiet_dry, true, false);
     r1.plan(p, 1, dry);
     r1.skipped(j);
     REQUIRE_THAT(quiet_dry.str(), !ContainsSubstring("skipped:"));
 
-    std::ostringstream nonquiet_dry;
+    ostringstream nonquiet_dry;
     ConsoleReporter r2(nonquiet_dry, false, false);
     r2.plan(p, 1, dry);
     r2.skipped(j);
     REQUIRE_THAT(nonquiet_dry.str(), ContainsSubstring("= a.wav    skipped: output exists"));
 
-    std::ostringstream plain;
+    ostringstream plain;
     ConsoleReporter r3(plain, false, false);   // not quiet, not verbose
     r3.plan(p, 1, not_dry);
     r3.skipped(j);

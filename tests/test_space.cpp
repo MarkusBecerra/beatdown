@@ -30,7 +30,7 @@ TEST_CASE("check_space applies a 10% margin") {
 
 TEST_CASE("available_bytes reports space for a real directory and errors for a missing one") {
     TempDir t;
-    std::string err;
+    string err;
     REQUIRE(available_bytes(t.path, err) > 0);
     REQUIRE(err.empty());
     available_bytes(t.path / "nope", err);

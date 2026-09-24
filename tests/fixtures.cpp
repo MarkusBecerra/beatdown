@@ -8,17 +8,33 @@
 #include "core/platform/platform.hpp"
 #include "core/unicode.hpp"
 
+// Global scope, like fixtures.hpp -- see its comment for why these aren't routed through
+// core/std_names.hpp.
+using std::error_code;
+using std::ifstream;
+using std::ios;
+using std::istreambuf_iterator;
+using std::mt19937_64;
+using std::ofstream;
+using std::optional;
+using std::random_device;
+using std::runtime_error;
+using std::sin;
+using std::streamsize;
+using std::to_string;
+using std::vector;
+
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 }  // namespace
 
 TempDir::TempDir() {
-    std::mt19937_64 rng(std::random_device{}());
-    path = fs::temp_directory_path() / ("beatdown-test-" + std::to_string(rng()));
+    mt19937_64 rng(random_device{}());
+    path = fs::temp_directory_path() / ("beatdown-test-" + to_string(rng()));
     fs::create_directories(path);
 }
 TempDir::~TempDir() {
-    std::error_code ec;
+    error_code ec;
     fs::remove_all(path, ec);
 }
 
@@ -29,8 +45,8 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     info.channels = spec.channels;
     info.format = spec.container | spec.subtype;
     SNDFILE* sf = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
-    if (!sf) throw std::runtime_error("fixture open failed: " + beatdown::path_to_utf8(file) + ": " + sf_strerror(nullptr));
-    auto set = [&](int key, const std::optional<std::string>& v) { if (v) sf_set_string(sf, key, v->c_str()); };
+    if (!sf) throw runtime_error("fixture open failed: " + beatdown::path_to_utf8(file) + ": " + sf_strerror(nullptr));
+    auto set = [&](int key, const optional<string>& v) { if (v) sf_set_string(sf, key, v->c_str()); };
     set(SF_STR_TITLE, spec.tags.title);
     set(SF_STR_ARTIST, spec.tags.artist);
     set(SF_STR_ALBUM, spec.tags.album);
@@ -40,9 +56,9 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     set(SF_STR_COMMENT, spec.tags.comment);
 
     const int64_t frames = static_cast<int64_t>(spec.rate * spec.seconds);
-    std::vector<float> buf(static_cast<size_t>(frames) * spec.channels);
+    vector<float> buf(static_cast<size_t>(frames) * spec.channels);
     for (int64_t i = 0; i < frames; ++i) {
-        float v = static_cast<float>(spec.amplitude * std::sin(2.0 * kPi * spec.freq_hz * i / spec.rate));
+        float v = static_cast<float>(spec.amplitude * sin(2.0 * kPi * spec.freq_hz * i / spec.rate));
         for (int c = 0; c < spec.channels; ++c) buf[i * spec.channels + c] = v;
     }
     sf_writef_float(sf, buf.data(), frames);
@@ -50,13 +66,13 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     return file;
 }
 
-void write_bytes(const fs::path& file, std::string_view bytes) {
+void write_bytes(const fs::path& file, string_view bytes) {
     fs::create_directories(file.parent_path());
-    std::ofstream out(file, std::ios::binary);
-    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    ofstream out(file, ios::binary);
+    out.write(bytes.data(), static_cast<streamsize>(bytes.size()));
 }
 
-std::string read_file(const fs::path& file) {
-    std::ifstream in(file, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+string read_file(const fs::path& file) {
+    ifstream in(file, ios::binary);
+    return string((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
 }

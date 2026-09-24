@@ -34,10 +34,10 @@ bool parse_header(const unsigned char* h, Frame& f) {
 }
 }  // namespace
 
-bool parse_mp3(const std::filesystem::path& file, Mp3Info& out, std::string& error) {
+bool parse_mp3(const fs::path& file, Mp3Info& out, string& error) {
     out = Mp3Info{};
-    std::ifstream in(file, std::ios::binary);
-    std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ifstream in(file, ios::binary);
+    string data((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
     if (data.empty()) { error = "empty file"; return false; }
     size_t pos = 0;
     if (parse_id3v2(data, out.tags, &out.id3v2_size)) pos = out.id3v2_size;
@@ -51,7 +51,7 @@ bool parse_mp3(const std::filesystem::path& file, Mp3Info& out, std::string& err
             out.channels = f.mono ? 1 : 2;
             out.samples_per_frame = f.spf;
             size_t tag_at = pos + 4 + (f.crc ? 2 : 0) + f.side_info;
-            if (tag_at + 4 <= data.size() && (std::memcmp(p + tag_at, "Xing", 4) == 0 || std::memcmp(p + tag_at, "Info", 4) == 0)) {
+            if (tag_at + 4 <= data.size() && (memcmp(p + tag_at, "Xing", 4) == 0 || memcmp(p + tag_at, "Info", 4) == 0)) {
                 out.has_xing = true;
                 pos += f.length;
                 first = false;
@@ -68,15 +68,15 @@ bool parse_mp3(const std::filesystem::path& file, Mp3Info& out, std::string& err
     return true;
 }
 
-std::string build_mp3_frame_for_test(int kbps, int sample_rate, bool padding, bool mono, const char* xing_tag, bool crc) {
+string build_mp3_frame_for_test(int kbps, int sample_rate, bool padding, bool mono, const char* xing_tag, bool crc) {
     int bi = 0; for (int i = 1; i < 15; ++i) if (kBitrateV1[i] == kbps) bi = i;
     int si = 0; for (int i = 0; i < 3; ++i) if (kRateV1[i] == sample_rate) si = i;
     unsigned char h[4] = {0xFF, static_cast<unsigned char>(crc ? 0xFA : 0xFB), static_cast<unsigned char>((bi << 4) | (si << 2) | (padding ? 2 : 0)), static_cast<unsigned char>(mono ? 0xC0 : 0x00)};
     int length = 144 * kbps * 1000 / sample_rate + (padding ? 1 : 0);
-    std::string frame(reinterpret_cast<const char*>(h), 4);
+    string frame(reinterpret_cast<const char*>(h), 4);
     if (crc) frame.resize(frame.size() + 2, '\0');  // Add CRC bytes
     frame.resize(length, '\0');
-    if (xing_tag) std::memcpy(frame.data() + 4 + (crc ? 2 : 0) + (mono ? 17 : 32), xing_tag, 4);
+    if (xing_tag) memcpy(frame.data() + 4 + (crc ? 2 : 0) + (mono ? 17 : 32), xing_tag, 4);
     return frame;
 }
 

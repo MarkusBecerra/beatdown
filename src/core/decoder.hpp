@@ -1,10 +1,7 @@
 #pragma once
 #include <cstdint>
-#include <filesystem>
-#include <memory>
-#include <mutex>
-#include <string>
 #include <sndfile.h>
+#include "core/std_names.hpp"
 #include "core/tags.hpp"
 
 namespace beatdown {
@@ -31,18 +28,18 @@ struct AudioInfo {
 // regardless of mode, so a write-mode open (FlacEncoder) racing a read-mode one can read back the
 // wrong error string. A single mutex shared by both call sites (Decoder::open here,
 // FlacEncoder's write-mode open) keeps that global state consistent.
-std::mutex& sf_open_mutex();
+mutex& sf_open_mutex();
 
 class Decoder {
 public:
-    static std::unique_ptr<Decoder> open(const std::filesystem::path& path, std::string& error);
+    static unique_ptr<Decoder> open(const fs::path& path, string& error);
     ~Decoder();
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
     const AudioInfo& info() const { return info_; }
     const Tags& tags() const { return tags_; }
-    const std::filesystem::path& path() const { return path_; }
+    const fs::path& path() const { return path_; }
     int64_t read_float(float* interleaved, int64_t frames);
     int64_t read_int(int32_t* interleaved, int64_t frames);
     bool seek_start();
@@ -52,7 +49,7 @@ private:
     SNDFILE* sf_ = nullptr;
     AudioInfo info_;
     Tags tags_;
-    std::filesystem::path path_;
+    fs::path path_;
 };
 
 }  // namespace beatdown

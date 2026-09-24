@@ -5,9 +5,8 @@
 #include "core/scanner.hpp"
 #include "core/scheduler.hpp"
 #include "core/space.hpp"
+#include "core/std_names.hpp"
 #include "core/unicode.hpp"
-
-namespace fs = std::filesystem;
 
 namespace beatdown {
 
@@ -17,7 +16,7 @@ namespace beatdown {
 // filename component, so parent_path() once lands back on the non-existent destination itself;
 // applying it twice strips both the phantom empty element and "NewRelease"). Shared by both
 // checks so they always agree on which directory actually exists today.
-static fs::path existing_destination_dir(const fs::path& destination, std::error_code& ec) {
+static fs::path existing_destination_dir(const fs::path& destination, error_code& ec) {
     if (fs::is_directory(destination, ec)) return destination;
     return destination.has_filename() ? destination.parent_path() : destination.parent_path().parent_path();
 }
@@ -26,7 +25,7 @@ static fs::path existing_destination_dir(const fs::path& destination, std::error
 // a typo. Finding 3: validation no longer creates anything — creation is deferred until after the
 // space check passes, so a refused (or dry) run never leaves a stray empty folder behind.
 static bool validate_destination(const Options& o, Reporter& rep) {
-    std::error_code ec;
+    error_code ec;
     if (fs::is_directory(o.destination, ec)) return true;
     if (fs::exists(o.destination, ec)) { rep.error("destination is not a directory: " + path_to_utf8(o.destination)); return false; }
     fs::path parent = existing_destination_dir(o.destination, ec);
@@ -38,26 +37,26 @@ static bool validate_destination(const Options& o, Reporter& rep) {
 }
 
 static bool create_destination(const Options& o, Reporter& rep) {
-    std::error_code ec;
+    error_code ec;
     if (fs::is_directory(o.destination, ec)) return true;
     fs::create_directory(o.destination, ec);
     if (ec) { rep.error("cannot create " + path_to_utf8(o.destination) + ": " + ec.message()); return false; }
     return true;
 }
 
-int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, ConvertFn convert) {
-    auto t0 = std::chrono::steady_clock::now();
+int run(const Options& options, Reporter& rep, atomic<bool>& cancel, ConvertFn convert) {
+    auto t0 = chrono::steady_clock::now();
     // Finding 2 (fix round 1): work on an absolutized copy. A bare relative destination like
     // "Release" has an empty parent_path(), which validate_destination would otherwise mistake
     // for a missing/unmounted parent and refuse with exit 2.
     Options o = options;
-    std::error_code abs_ec;
+    error_code abs_ec;
     o.source = fs::absolute(o.source, abs_ec);
     o.destination = fs::absolute(o.destination, abs_ec);
 
     Summary s;
-    std::string err;
-    std::error_code ec;
+    string err;
+    error_code ec;
     if (!fs::exists(o.source, ec)) { rep.error("source does not exist: " + path_to_utf8(o.source)); return 2; }
     if (!validate_destination(o, rep)) return 2;
 
@@ -71,10 +70,10 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
 
     // R28: estimate each job from its header (unreadable files estimate 0 and fail on their own
     // later). A2 keeps the per-job figure, not just the total, so a dry run can report it per file.
-    std::vector<int64_t> estimates(plan.to_convert.size(), 0);
+    vector<int64_t> estimates(plan.to_convert.size(), 0);
     int64_t estimate_total = 0;
     for (size_t i = 0; i < plan.to_convert.size(); ++i) {
-        std::string e;
+        string e;
         if (auto d = Decoder::open(plan.to_convert[i].source, e)) estimates[i] = estimate_output_bytes(d->info(), o.encode);
         estimate_total += estimates[i];
     }
@@ -89,7 +88,7 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
     if (o.space_override_available) {
         avail = *o.space_override_available;
     } else {
-        std::string space_err;
+        string space_err;
         avail = available_bytes(space_dir, space_err);
         if (!space_err.empty()) {
             // Can't tell either way (e.g. a race removed the directory just validated above);
@@ -107,7 +106,7 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
             // dry run too, since a dry run previews exactly what the real run would do.
             rep.error("refusing to start: not enough free space on the destination");
             s.space_refused = true;
-            s.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+            s.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0);
             rep.summary(s);
             return s.exit_code();
         }
@@ -117,7 +116,7 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
         for (size_t i = 0; i < plan.to_convert.size(); ++i) rep.would_convert(plan.to_convert[i], estimates[i]);
         s.would_convert = static_cast<int>(plan.to_convert.size());
         s.dry_run = true;
-        s.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+        s.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0);
         rep.summary(s);
         return 0;
     }
@@ -125,8 +124,8 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
     if (!create_destination(o, rep)) return 2;
 
     // A disk-full failure stops the batch (R28) by raising the same flag Ctrl-C uses; remember which it was.
-    std::atomic<bool> disk_full{false};
-    std::vector<FileResult> results(plan.to_convert.size());
+    atomic<bool> disk_full{false};
+    vector<FileResult> results(plan.to_convert.size());
     run_parallel(jobs, plan.to_convert.size(), [&](size_t i) {
         FileResult r;
         // A4: run_parallel rethrows a job's exception on the caller after stopping the batch, so one
@@ -134,10 +133,10 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
         // would abort every other in-flight and not-yet-started file along with it.
         try {
             r = convert(plan.to_convert[i], o, cancel);
-        } catch (const std::exception& e) {
+        } catch (const exception& e) {
             r.job = plan.to_convert[i];
             r.outcome = Outcome::Failed;
-            r.error = std::string("internal error: ") + e.what();
+            r.error = string("internal error: ") + e.what();
         } catch (...) {
             r.job = plan.to_convert[i];
             r.outcome = Outcome::Failed;
@@ -163,7 +162,7 @@ int run(const Options& options, Reporter& rep, std::atomic<bool>& cancel, Conver
     }
     s.disk_full = disk_full.load();
     s.interrupted = cancel.load() && !disk_full.load();
-    s.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+    s.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0);
     rep.summary(s);
     return s.exit_code();
 }

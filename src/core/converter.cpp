@@ -7,17 +7,16 @@
 #include "core/content_check.hpp"
 #include "core/encoder.hpp"
 #include "core/space.hpp"
+#include "core/std_names.hpp"
 #include "core/unicode.hpp"
 #include "core/verifier.hpp"
-
-namespace fs = std::filesystem;
 
 namespace beatdown {
 
 fs::path temp_path_for(const fs::path& output) {
-    thread_local std::mt19937_64 rng{std::random_device{}()};
+    thread_local mt19937_64 rng{random_device{}()};
     char hex[9];
-    std::snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(rng() & 0xFFFFFFFFu));
+    snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(rng() & 0xFFFFFFFFu));
     return output.parent_path() / path_from_utf8(".beatdown-" + path_to_utf8(output.filename()) + "." + hex + ".part");
 }
 
@@ -29,25 +28,25 @@ Tags resolve_tags(const Decoder& d, const Options& o) {
     return merge_tags(t, derived);
 }
 
-bool looks_like_disk_full(const std::string& error, int64_t available, int64_t estimated) {
+bool looks_like_disk_full(const string& error, int64_t available, int64_t estimated) {
     if (available < estimated) return true;
-    return error.find("No space left") != std::string::npos || error.find("not enough space") != std::string::npos
-        || error.find("There is not enough space") != std::string::npos;
+    return error.find("No space left") != string::npos || error.find("not enough space") != string::npos
+        || error.find("There is not enough space") != string::npos;
 }
 
-FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>& cancel) {
+FileResult convert_one(const Job& job, const Options& o, const atomic<bool>& cancel) {
     FileResult r;
     r.job = job;
-    auto t0 = std::chrono::steady_clock::now();
-    auto done = [&](Outcome oc, std::string err = "") {
+    auto t0 = chrono::steady_clock::now();
+    auto done = [&](Outcome oc, string err = "") {
         r.outcome = oc;
         r.error = std::move(err);
-        r.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+        r.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0);
         return r;
     };
     if (cancel.load()) return done(Outcome::Cancelled);
 
-    std::string err;
+    string err;
     auto dec = Decoder::open(job.source, err);
     if (!dec) return done(Outcome::Failed, err);
     // Task 18 fix round 2: a source already coded as MP3 (however it's named -- an MP3 renamed
@@ -55,29 +54,29 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
     // output format: re-encoding lossy audio compounds its losses for no benefit.
     if (dec->info().is_mpeg()) return done(Outcome::Failed, "source is MP3 data — not re-encoding lossy audio");
 
-    std::error_code ec;
+    error_code ec;
     fs::create_directories(job.output.parent_path(), ec);
     if (ec) return done(Outcome::Failed, "cannot create " + path_to_utf8(job.output.parent_path()) + ": " + ec.message());
 
     fs::path tmp = temp_path_for(job.output);
-    struct Cleanup { const fs::path& p; bool armed = true; ~Cleanup() { if (armed) { std::error_code e; fs::remove(p, e); } } } cleanup{tmp};
+    struct Cleanup { const fs::path& p; bool armed = true; ~Cleanup() { if (armed) { error_code e; fs::remove(p, e); } } } cleanup{tmp};
 
     Tags tags = resolve_tags(*dec, o);
     auto enc = make_encoder(o.encode);
-    std::string log;
-    std::string e = enc->encode(*dec, tmp, tags, cancel, o.verbose ? &log : nullptr);
+    string log;
+    string e = enc->encode(*dec, tmp, tags, cancel, o.verbose ? &log : nullptr);
     r.verbose_log = log;
     if (e == "cancelled") return done(Outcome::Cancelled);
     if (!e.empty()) {
         // A write that fails for lack of space is reported so the runner can stop the batch (R28).
-        std::error_code space_ec;
+        error_code space_ec;
         auto sp = fs::space(job.output.parent_path(), space_ec);
         int64_t estimated = estimate_output_bytes(dec->info(), o.encode);
-        int64_t available = space_ec ? std::numeric_limits<int64_t>::max() : static_cast<int64_t>(sp.available);
+        int64_t available = space_ec ? numeric_limits<int64_t>::max() : static_cast<int64_t>(sp.available);
         r.disk_full = looks_like_disk_full(e, available, estimated);
         return done(Outcome::Failed, e);
     }
-    std::string v = verify_output(tmp, o.encode, dec->info());
+    string v = verify_output(tmp, o.encode, dec->info());
     if (!v.empty()) return done(Outcome::Failed, "verification failed: " + v);
     ContentCheckResult vc = verify_content(tmp, o.encode, job.source);
     if (!vc.error.empty()) return done(Outcome::Failed, "verification failed: " + vc.error);

@@ -20,7 +20,7 @@ TEST_CASE("file_id agrees for two paths naming the same file and differs for two
     // first since it's closer to the real cases this exists for (NFC/NFD twins, a symlinked
     // destination), but needs a privilege this environment might not have (e.g. Windows without
     // Developer Mode or elevation).
-    std::error_code ec;
+    error_code ec;
     fs::create_symlink(t.path / "a.txt", t.path / "a-link.txt", ec);
     if (!ec) REQUIRE(platform::file_id(t.path / "a-link.txt") == id_a);
     REQUIRE(platform::file_id(t.path / "." / "a.txt") == id_a);

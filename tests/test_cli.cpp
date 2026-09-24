@@ -9,29 +9,35 @@
 #include <sys/wait.h>
 #endif
 
+// Global scope, like fixtures.hpp -- this file never does `using namespace beatdown;` (it never
+// names anything in that namespace), so it can't reach core/std_names.hpp either.
+using std::string;
+using std::system;
+using std::vector;
+
 using Catch::Matchers::ContainsSubstring;
 
-struct CliResult { int code; std::string output; };
+struct CliResult { int code; string output; };
 
-static std::string quote(const std::string& s) {
+static string quote(const string& s) {
 #ifdef _WIN32
     return "\"" + s + "\"";
 #else
-    std::string q = "'";
-    for (char c : s) q += (c == '\'') ? "'\\''" : std::string(1, c);
+    string q = "'";
+    for (char c : s) q += (c == '\'') ? "'\\''" : string(1, c);
     return q + "'";
 #endif
 }
 
-static CliResult run_cli(const std::vector<std::string>& args, const fs::path& log) {
-    std::string cmd = quote(BEATDOWN_BIN);
+static CliResult run_cli(const vector<string>& args, const fs::path& log) {
+    string cmd = quote(BEATDOWN_BIN);
     for (auto& a : args) cmd += " " + quote(a);
     cmd += " > " + quote(log.string()) + " 2>&1";
 #ifdef _WIN32
     cmd = "\"" + cmd + "\"";
-    int rc = std::system(cmd.c_str());
+    int rc = system(cmd.c_str());
 #else
-    int raw = std::system(cmd.c_str());
+    int raw = system(cmd.c_str());
     int rc = WIFEXITED(raw) ? WEXITSTATUS(raw) : -1;
 #endif
     return {rc, read_file(log)};

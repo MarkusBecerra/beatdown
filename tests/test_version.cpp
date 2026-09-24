@@ -2,6 +2,8 @@
 #include <string>
 #include "core/version.hpp"
 
+using std::string;
+
 TEST_CASE("version string is the project version") {
-    REQUIRE(std::string(beatdown::version()) == "0.1.0");
+    REQUIRE(string(beatdown::version()) == "0.1.0");
 }

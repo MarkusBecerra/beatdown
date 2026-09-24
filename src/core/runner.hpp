@@ -1,11 +1,10 @@
 #pragma once
-#include <atomic>
-#include <functional>
 #include "core/converter.hpp"
 #include "core/options.hpp"
 #include "core/report.hpp"
+#include "core/std_names.hpp"
 
 namespace beatdown {
-using ConvertFn = std::function<FileResult(const Job&, const Options&, const std::atomic<bool>&)>;
-int run(const Options& o, Reporter& rep, std::atomic<bool>& cancel, ConvertFn convert = convert_one);
+using ConvertFn = function<FileResult(const Job&, const Options&, const atomic<bool>&)>;
+int run(const Options& o, Reporter& rep, atomic<bool>& cancel, ConvertFn convert = convert_one);
 }  // namespace beatdown

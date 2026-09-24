@@ -14,12 +14,12 @@ using namespace beatdown;
 using Catch::Matchers::ContainsSubstring;
 
 static Mp3Info encode_and_parse(const fs::path& src, const fs::path& out, EncodeSettings s = {}, Tags tags = {}) {
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
     REQUIRE(d);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     auto enc = make_encoder(s);
-    std::string log;
+    string log;
     REQUIRE(enc->encode(*d, out, tags, cancel, &log) == "");
     Mp3Info info;
     REQUIRE(parse_mp3(out, info, err));
@@ -43,7 +43,7 @@ TEST_CASE("LameEncoder encodes a 22.05 kHz source as CBR 320 at 44.1 kHz and it 
     Mp3Info info = encode_and_parse(src, t.path / "22k.mp3");
     REQUIRE(info.sample_rate == 44100);
     REQUIRE(info.cbr(320));
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
     REQUIRE(d);
     REQUIRE(verify_mp3(t.path / "22k.mp3", EncodeSettings{}, d->info()) == "");
@@ -51,10 +51,10 @@ TEST_CASE("LameEncoder encodes a 22.05 kHz source as CBR 320 at 44.1 kHz and it 
 
 TEST_CASE("LameEncoder refuses a CBR bitrate LAME would change and writes nothing") {
     TempDir t;
-    std::string err;
+    string err;
     auto d = Decoder::open(make_audio(t.path / "a.wav", {.seconds = 0.2}), err);
     REQUIRE(d);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     EncodeSettings s; s.bitrate = 8;   // an MPEG-2 rate: MPEG-1 at 48 kHz starts at 32 kbps
     REQUIRE_THAT(make_encoder(s)->encode(*d, t.path / "a.mp3", {}, cancel, nullptr), ContainsSubstring("CBR 8 kbps"));
     REQUIRE_FALSE(fs::exists(t.path / "a.mp3"));
@@ -127,9 +127,9 @@ TEST_CASE("LameEncoder writes no tag block when there are no tags") {
 TEST_CASE("LameEncoder stops when cancelled") {
     TempDir t;
     auto src = make_audio(t.path / "long.wav", {.seconds = 30.0});
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
-    std::atomic<bool> cancel{true};
+    atomic<bool> cancel{true};
     auto enc = make_encoder({});
     REQUIRE(enc->encode(*d, t.path / "long.mp3", {}, cancel, nullptr) == "cancelled");
 }
@@ -137,9 +137,9 @@ TEST_CASE("LameEncoder stops when cancelled") {
 TEST_CASE("LameEncoder refuses more than two channels") {
     TempDir t;
     auto src = make_audio(t.path / "4ch.wav", {.channels = 4, .seconds = 0.1});
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     REQUIRE(make_encoder({})->encode(*d, t.path / "4ch.mp3", {}, cancel, nullptr) != "");
 }
 

@@ -10,10 +10,10 @@ using namespace beatdown;
 using Catch::Matchers::ContainsSubstring;
 
 static AudioInfo encode(const fs::path& src, const fs::path& out, EncodeSettings s) {
-    std::string err;
+    string err;
     auto d = Decoder::open(src, err);
     REQUIRE(d);
-    std::atomic<bool> cancel{false};
+    atomic<bool> cancel{false};
     REQUIRE(make_encoder(s)->encode(*d, out, {}, cancel, nullptr) == "");
     return d->info();
 }
@@ -54,7 +54,7 @@ TEST_CASE("verify_mp3 fails a truncated file") {
     EncodeSettings s192;
     s192.bitrate = 192;
     AudioInfo a = encode(src, t.path / "a.mp3", s192);
-    std::string data = read_file(t.path / "a.mp3");
+    string data = read_file(t.path / "a.mp3");
     write_bytes(t.path / "cut.mp3", data.substr(0, data.size() / 2));
     REQUIRE_FALSE(verify_mp3(t.path / "cut.mp3", s192, a).empty());
 }

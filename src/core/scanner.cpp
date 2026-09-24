@@ -4,21 +4,20 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "core/platform/platform.hpp"
+#include "core/std_names.hpp"
 #include "core/unicode.hpp"
-
-namespace fs = std::filesystem;
 
 namespace beatdown {
 
 bool is_audio_input(const fs::path& p) {
-    std::string ext = path_to_utf8(p.extension());
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+    string ext = path_to_utf8(p.extension());
+    transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return tolower(c); });
     return ext == ".wav" || ext == ".wave" || ext == ".aif" || ext == ".aiff" || ext == ".aifc" || ext == ".flac";
 }
 
 namespace {
 
-std::string ascii_lower(std::string s) {
+string ascii_lower(string s) {
     for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;
 }
@@ -26,12 +25,12 @@ std::string ascii_lower(std::string s) {
 // A path's identity for the collision rules in decide(): macOS and Windows volumes are
 // case-insensitive by default, so "Track.mp3" and "track.mp3" name one file there. ASCII case
 // only; normalized so "dir/./x" and "dir/x" match.
-std::string path_key(const fs::path& p) {
-    std::u8string g = p.lexically_normal().generic_u8string();
-    return ascii_lower(std::string(reinterpret_cast<const char*>(g.data()), g.size()));
+string path_key(const fs::path& p) {
+    u8string g = p.lexically_normal().generic_u8string();
+    return ascii_lower(string(reinterpret_cast<const char*>(g.data()), g.size()));
 }
 
-using FallbackByParent = std::unordered_map<std::string, std::vector<fs::path>>;   // canonical parent dir (UTF-8) -> sources there whose FileId couldn't be read
+using FallbackByParent = unordered_map<string, vector<fs::path>>;   // canonical parent dir (UTF-8) -> sources there whose FileId couldn't be read
 
 // If `output` already exists, returns the note to skip the job with; "" if there's no overwrite
 // risk (including: output doesn't exist yet, which the caller checks other rules for). Catches
@@ -57,11 +56,11 @@ using FallbackByParent = std::unordered_map<std::string, std::vector<fs::path>>;
 //    filesystem) goes in `fallback_by_parent` instead of `source_ids`, checked with fs::equivalent
 //    against any existing output in the same directory; if that check itself can't tell (fails
 //    and sets its error_code), that's treated as a match too, not as "no risk".
-std::string overwrites_a_source(const fs::path& output, const std::unordered_set<platform::FileId>& source_ids,
+string overwrites_a_source(const fs::path& output, const unordered_set<platform::FileId>& source_ids,
                                  const FallbackByParent& fallback_by_parent) {
-    std::error_code ec;
+    error_code ec;
     if (!fs::exists(output, ec)) return "";
-    std::optional<platform::FileId> out_id = platform::file_id(output);
+    optional<platform::FileId> out_id = platform::file_id(output);
     if (!out_id) return "cannot check whether the output is a source file";
     if (source_ids.count(*out_id)) return "output would overwrite a source file";
     if (fallback_by_parent.empty()) return "";   // every source's id is in source_ids; no match there
@@ -77,15 +76,15 @@ std::string overwrites_a_source(const fs::path& output, const std::unordered_set
 }
 
 // Pairs an audio input with its output path; anything else is only counted.
-void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts, std::vector<Job>& jobs, int& ignored) {
-    std::string name = path_to_utf8(file.filename());
+void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts, vector<Job>& jobs, int& ignored) {
+    string name = path_to_utf8(file.filename());
     if (name.rfind("._", 0) == 0 || !is_audio_input(file)) { ++ignored; return; }
     Job j;
     j.source = file;
     // R-E: When rel_dir is "." (or empty), use empty path so output is destination / filename
     fs::path effective_rel_dir = (rel_dir.empty() || rel_dir == ".") ? fs::path() : rel_dir;
     j.output = opts.destination / effective_rel_dir / (file.stem().native() + fs::path(opts.output_extension()).native());
-    std::error_code ec;
+    error_code ec;
     j.source_bytes = static_cast<int64_t>(fs::file_size(file, ec));
     jobs.push_back(std::move(j));
 }
@@ -95,29 +94,29 @@ void collect(const fs::path& file, const fs::path& rel_dir, const Options& opts,
 // are skipped, since parallel jobs writing one output would publish a mix of both. And no output
 // may land on any audio input's path (with --format flac, track.wav -> track.flac), whatever
 // became of that input, since that would replace a source file.
-void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
-    std::unordered_set<std::string> sources;          // path_key of every audio input
-    std::unordered_set<platform::FileId> source_ids;  // file identity of every audio input whose id could be read
+void decide(vector<Job>& jobs, const Options& opts, Plan& plan) {
+    unordered_set<string> sources;          // path_key of every audio input
+    unordered_set<platform::FileId> source_ids;  // file identity of every audio input whose id could be read
     FallbackByParent fallback_by_parent;   // canonical parent dir -> sources whose id couldn't be read
     for (const Job& j : jobs) {
         sources.insert(path_key(j.source));
-        if (std::optional<platform::FileId> id = platform::file_id(j.source))
+        if (optional<platform::FileId> id = platform::file_id(j.source))
             source_ids.insert(*id);
         else {
-            std::error_code ec;
+            error_code ec;
             fs::path parent = fs::weakly_canonical(j.source.parent_path(), ec);
             fallback_by_parent[path_to_utf8(parent)].push_back(j.source);
         }
     }
-    std::unordered_map<std::string, std::string> claimed;   // output key -> filename of the source that keeps it
+    unordered_map<string, string> claimed;   // output key -> filename of the source that keeps it
     for (Job& j : jobs) {
-        std::error_code ec;
-        std::string out = path_key(j.output);
+        error_code ec;
+        string out = path_key(j.output);
         if (out == path_key(j.source) || (fs::exists(j.output, ec) && fs::equivalent(j.source, j.output, ec)))
             j.note = "output would be the source file";
         else if (sources.count(out))
             j.note = "output would overwrite a source file";
-        else if (std::string overwrite_note = overwrites_a_source(j.output, source_ids, fallback_by_parent); !overwrite_note.empty())
+        else if (string overwrite_note = overwrites_a_source(j.output, source_ids, fallback_by_parent); !overwrite_note.empty())
             j.note = overwrite_note;
         else if (auto [it, fresh] = claimed.emplace(out, path_to_utf8(j.source.filename())); !fresh)
             j.note = "same output as " + it->second;
@@ -129,11 +128,11 @@ void decide(std::vector<Job>& jobs, const Options& opts, Plan& plan) {
 
 }  // namespace
 
-Plan scan(const Options& opts, std::string& error) {
+Plan scan(const Options& opts, string& error) {
     Plan plan;
-    std::error_code ec;
+    error_code ec;
     if (!fs::exists(opts.source, ec)) { error = "source does not exist: " + path_to_utf8(opts.source); return plan; }
-    std::vector<Job> jobs;
+    vector<Job> jobs;
     if (fs::is_regular_file(opts.source, ec)) {
         collect(opts.source, fs::path(), opts, jobs, plan.ignored);
     } else {
@@ -152,7 +151,7 @@ Plan scan(const Options& opts, std::string& error) {
             for (const auto& e : fs::directory_iterator(opts.source, fs::directory_options::skip_permission_denied, ec)) visit(e);
         }
     }
-    std::sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b) { return a.source < b.source; });
+    sort(jobs.begin(), jobs.end(), [](const Job& a, const Job& b) { return a.source < b.source; });
     decide(jobs, opts, plan);
     return plan;
 }

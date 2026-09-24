@@ -1,26 +1,22 @@
 #pragma once
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <ostream>
-#include <string>
-#include <vector>
 #include "core/converter.hpp"
 #include "core/scanner.hpp"
 #include "core/space.hpp"
+#include "core/std_names.hpp"
 
 namespace beatdown {
 
-std::string format_size(int64_t bytes);
-std::string format_secs(std::chrono::milliseconds ms);
-std::string format_clock(std::chrono::milliseconds ms);
+string format_size(int64_t bytes);
+string format_secs(chrono::milliseconds ms);
+string format_clock(chrono::milliseconds ms);
 
 struct Summary {
     int converted = 0, skipped = 0, failed = 0, ignored = 0, cancelled = 0;
     int hot = 0;  // Task 18: converted MP3s whose decoded peak is above +1.0 dBFS
     int64_t bytes_in = 0, bytes_out = 0;
-    std::chrono::milliseconds elapsed{0};
-    std::vector<FileResult> failures;
+    chrono::milliseconds elapsed{0};
+    vector<FileResult> failures;
     bool interrupted = false;
     bool space_refused = false;
     int would_convert = 0;   // number of jobs projected in a dry run
@@ -39,24 +35,24 @@ public:
     // Dry-run projection for one to_convert job, called once per job in plan order instead of file().
     virtual void would_convert(const Job& j, int64_t estimated_bytes) = 0;
     virtual void summary(const Summary& s) = 0;
-    virtual void error(const std::string& message) = 0;
+    virtual void error(const string& message) = 0;
 };
 
 class ConsoleReporter : public Reporter {
 public:
-    ConsoleReporter(std::ostream& out, bool quiet, bool verbose) : out_(out), quiet_(quiet), verbose_(verbose) {}
+    ConsoleReporter(ostream& out, bool quiet, bool verbose) : out_(out), quiet_(quiet), verbose_(verbose) {}
     void plan(const Plan& p, int jobs, const Options& o) override;
     void space(const SpaceCheck& s, bool dry_run) override;
     void file(const FileResult& r) override;
     void skipped(const Job& j) override;
     void would_convert(const Job& j, int64_t estimated_bytes) override;
     void summary(const Summary& s) override;
-    void error(const std::string& message) override;
+    void error(const string& message) override;
 private:
-    std::ostream& out_;
+    ostream& out_;
     bool quiet_, verbose_;
     bool dry_run_ = false;  // learned from plan(); skipped() needs it since its signature carries no Options
-    std::filesystem::path source_root_;  // learned from plan(); shortens failure paths in summary()
+    fs::path source_root_;  // learned from plan(); shortens failure paths in summary()
 };
 
 }  // namespace beatdown
