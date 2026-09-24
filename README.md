@@ -115,7 +115,7 @@ Bitrate, sample rate and channel layout should match.
 
 ## Club-ready?
 
-A measurement pass on synthetic test material (sine sweeps, noise, and a few synthesised "loud master" style loops — not real songs) found the defaults transparent: the 320 kbps MP3 didn't change level, stayed flat to 20 kHz, and kept the stereo image; FLAC output was bit-exact. Real music will vary, but those numbers are a reasonable baseline for what LAME at these settings does.
+A measurement pass on synthetic test material (sine sweeps, noise, and a few synthesised "loud master" style loops — not real songs) found the defaults transparent: the 320 kbps MP3 didn't change level, stayed flat to 20 kHz, and kept the stereo image; FLAC output was bit-exact. Real music will vary, but those numbers are a reasonable baseline for what LAME at these settings does. The full measurements are in [docs/club-readiness-measurements.md](docs/club-readiness-measurements.md).
 
 Beyond that one-time measurement, every file beatdown converts now has its *audio content* checked against its source before it's left under its final name — not just the container metadata (bitrate, sample rate, duration) verification already checked, but the decoded samples themselves: the per-second level (below 16 kHz, so the check isn't thrown off by the MP3's own intentional cutoff above that), the total decoded length, and the channel count. That catches the kind of bug that matters most — a conversion that's silent, badly truncated, or has dropped a channel — but it isn't a guarantee against every possible kind of corruption.
 
