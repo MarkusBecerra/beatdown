@@ -1,4 +1,5 @@
 #include "core/decoder.hpp"
+#include <mutex>
 #include <sndfile.h>
 #include "core/platform/platform.hpp"
 #include "core/unicode.hpp"
@@ -26,7 +27,20 @@ static std::optional<std::string> str(SNDFILE* sf, int key) {
 
 std::unique_ptr<Decoder> Decoder::open(const std::filesystem::path& path, std::string& error) {
     SF_INFO info{};
-    SNDFILE* sf = platform::sf_open_path(path, SFM_READ, &info);
+    SNDFILE* sf;
+    {
+        // Task 18 fix round 1: libsndfile's MPEG/MP3 read backend calls mpg123_init() on every
+        // open (see its own src/mpeg_decode.c, which documents this itself as a "FIXME -
+        // Threading issues": that call writes shared static tables without synchronization).
+        // mpg123's header claims concurrent calls "should" be safe since the tables end up with
+        // the same values regardless, but that didn't hold up empirically here: a stress test of
+        // 12 files at --jobs 8 crashed with SIGBUS in 9 of 60 runs before this fix, 0 of 200
+        // after. Opening is a small fraction of total conversion time, so serializing just this
+        // call (not the read loop that follows) keeps decoding itself fully parallel.
+        static std::mutex open_mutex;
+        std::lock_guard<std::mutex> lock(open_mutex);
+        sf = platform::sf_open_path(path, SFM_READ, &info);
+    }
     if (!sf) {
         error = sf_strerror(nullptr);
         return nullptr;

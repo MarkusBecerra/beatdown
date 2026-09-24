@@ -1,5 +1,4 @@
 #include "core/mp3_encoder.hpp"
-#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <fstream>
@@ -63,9 +62,6 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
         lame_set_brate(gf, settings_.bitrate);
     }
     lame_set_bWriteVbrTag(gf, 1);
-    // Task 18: lets LAME decode its own output on the fly and track the peak decoded sample, so
-    // the actual decoded level of a loud master is known without a second decode pass.
-    lame_set_decode_on_the_fly(gf, 1);
 
     id3tag_init(gf);
     if (!tags.empty()) {
@@ -118,9 +114,6 @@ std::string LameEncoder::encode(Decoder& in, const std::filesystem::path& out, c
     int written = lame_encode_flush(gf, mp3.data(), static_cast<int>(mp3.size()));
     if (written < 0) return "lame flush error";
     f.write(reinterpret_cast<const char*>(mp3.data()), written);
-    // Peak of LAME's own on-the-fly decode of what was just encoded, full scale = 32768 (matches
-    // spike-tools/lameclip.cpp's db20(pk / 32768.0)).
-    peak_dbfs_ = 20.0 * std::log10(lame_get_PeakSample(gf) / 32768.0);
 
     // Xing/Info frame: LAME reserved a frame at the start of the stream; fill it in now.
     size_t tag_size = lame_get_lametag_frame(gf, nullptr, 0);

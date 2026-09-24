@@ -73,12 +73,11 @@ FileResult convert_one(const Job& job, const Options& o, const std::atomic<bool>
         r.disk_full = looks_like_disk_full(e, available, estimated);
         return done(Outcome::Failed, e);
     }
-    r.peak_dbfs = enc->decoded_peak_dbfs();
-
     std::string v = verify_output(tmp, o.encode, dec->info());
     if (!v.empty()) return done(Outcome::Failed, "verification failed: " + v);
-    std::string vc = verify_content(tmp, o.encode, job.source);
-    if (!vc.empty()) return done(Outcome::Failed, "verification failed: " + vc);
+    ContentCheckResult vc = verify_content(tmp, o.encode, job.source);
+    if (!vc.error.empty()) return done(Outcome::Failed, "verification failed: " + vc.error);
+    r.peak_dbfs = vc.peak_dbfs;
 
     auto src_mtime = fs::last_write_time(job.source, ec);
     if (ec) return done(Outcome::Failed, "cannot read source modification time: " + ec.message());

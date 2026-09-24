@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <filesystem>
+#include <limits>
 #include <sstream>
 #include "core/report.hpp"
 #include "core/unicode.hpp"
@@ -143,6 +144,17 @@ TEST_CASE("ConsoleReporter shows the decoded peak on the verbose ✓ line only")
     ConsoleReporter flac_rep(flac_out, false, true);
     flac_rep.file(flac);
     REQUIRE_THAT(flac_out.str(), !ContainsSubstring("peak"));
+}
+
+// Task 18 fix round 1: a genuinely silent decode is -inf dBFS, which isn't a useful number to
+// print next to every other file's two-decimal figure.
+TEST_CASE("ConsoleReporter prints 'peak: silent' instead of -inf dBFS for a silent decode") {
+    FileResult r; r.job.source = "a.wav"; r.job.output = "/out/a.mp3"; r.outcome = Outcome::Converted;
+    r.peak_dbfs = -std::numeric_limits<double>::infinity();
+    std::ostringstream out;
+    ConsoleReporter(out, false, true).file(r);
+    REQUIRE_THAT(out.str(), ContainsSubstring("peak: silent"));
+    REQUIRE_THAT(out.str(), !ContainsSubstring("inf"));
 }
 
 // Task 18: the "very loud masters" callout is driven directly by Summary.hot (its aggregation

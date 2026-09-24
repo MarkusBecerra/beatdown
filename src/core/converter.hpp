@@ -22,7 +22,7 @@ struct FileResult {
     std::chrono::milliseconds elapsed{0};
     bool disk_full = false;
     std::string verbose_log;
-    // Task 18: the decoded peak (dBFS) of an MP3 output, from the encoder's on-the-fly decode;
+    // Task 18: the decoded peak (dBFS) of an MP3 output, from verify_content's own decode;
     // nullopt for FLAC (bit-exact, no decoded-peak concept) or a failed/cancelled conversion.
     std::optional<double> peak_dbfs;
 };

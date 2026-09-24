@@ -1,4 +1,5 @@
 #include "core/report.hpp"
+#include <cmath>
 #include <cstdio>
 #include <mutex>
 #include <system_error>
@@ -64,7 +65,12 @@ void ConsoleReporter::file(const FileResult& r) {
         case Outcome::Converted:
             if (quiet_) return;
             out_ << "  ✓ " << path_to_utf8(r.job.output.filename()) << "    " << format_size(r.job.source_bytes) << " → " << format_size(r.output_bytes) << "   " << format_secs(r.elapsed);
-            if (verbose_ && r.peak_dbfs) out_ << "   peak " << peak_str(*r.peak_dbfs) << " dBFS";
+            if (verbose_ && r.peak_dbfs) {
+                // Task 18 fix round 1: a truly silent decode is -inf dBFS, which isn't a useful
+                // number to show next to a two-decimal figure like every other file's.
+                if (std::isfinite(*r.peak_dbfs)) out_ << "   peak " << peak_str(*r.peak_dbfs) << " dBFS";
+                else out_ << "   peak: silent";
+            }
             out_ << "\n";
             break;
         case Outcome::Failed:
@@ -107,9 +113,6 @@ void ConsoleReporter::summary(const Summary& s) {
             long long pct = static_cast<long long>(100.0 * (static_cast<double>(s.bytes_out) / static_cast<double>(s.bytes_in)) - 100.0);
             out_ << "Size " << format_size(s.bytes_in) << " → " << format_size(s.bytes_out) << " (" << (pct < 0 ? "−" : "+") << (pct < 0 ? -pct : pct) << "%)   ";
         }
-        // Task 18: called out even under --quiet (like the failure recap below), and never
-        // affects the exit code -- it's information about loud masters, not a failure.
-        if (s.hot > 0) out_ << "\n" << s.hot << " file(s) decode above +1.0 dBFS — very loud masters; see \"Loud masters\" in the README\n";
     }
     // Finding 1 (fix round 1): recap every failure with its reason so a long batch doesn't force
     // scrolling back through hundreds of per-file lines to find the handful that failed. Printed
@@ -120,6 +123,10 @@ void ConsoleReporter::summary(const Summary& s) {
         for (const auto& r : s.failures) out_ << "  ✗ " << relative_to_root(r.job.source, source_root_) << "    " << r.error << "\n";
     }
     out_ << "Elapsed " << format_clock(s.elapsed) << "\n";
+    // Task 18 fix round 1: printed on its own line, strictly after the Size/Elapsed line (not
+    // interleaved with it) -- called out even under --quiet, like the failure recap above, and
+    // never affects the exit code, since it's information about loud masters, not a failure.
+    if (s.hot > 0) out_ << s.hot << " file(s) decode above +1.0 dBFS — very loud masters; see \"Loud masters\" in the README\n";
 }
 
 void ConsoleReporter::error(const std::string& m) {

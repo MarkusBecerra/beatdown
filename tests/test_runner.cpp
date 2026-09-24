@@ -3,6 +3,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <algorithm>
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include "core/mp3_parse.hpp"
@@ -334,4 +335,52 @@ TEST_CASE("run counts Summary.hot from converted files whose decoded peak is abo
     REQUIRE(code == 0);
     REQUIRE(rep.last.converted == 2);
     REQUIRE(rep.last.hot == 1);
+}
+
+// Task 18 fix round 1: the round-1 review found mpglib's hip_decode API (used by the original
+// content-check design) shares a function-static output buffer across every handle, racing under
+// concurrent conversions -- wrong peaks, spurious "audio content" failures, and a crash inside
+// III_dequantize_sample under --jobs. verify_content was redesigned to decode through libsndfile's
+// mpg123-backed "mpeg" feature instead. This runs a real batch of files at clearly different
+// levels through the full pipeline (real encode + real verify_content) once single-threaded and
+// once at high concurrency, and checks every file still converts with the same decoded peak.
+TEST_CASE("run at high concurrency (--jobs 8) matches single-threaded per-file decoded peaks") {
+    TempDir t;
+    const int n = 12;
+    for (int i = 0; i < n; ++i) {
+        double db = (i % 2 == 0) ? -6.0 : -30.0;
+        make_audio(t.path / ("src/" + std::to_string(i) + ".wav"), {.seconds = 2.0, .amplitude = amp_for_dbfs(db)});
+    }
+    RecordingReporter rep1;
+    std::atomic<bool> cancel1{false};
+    Options o1 = opts(t.path / "src", t.path / "out1");
+    o1.jobs = 1;
+    REQUIRE(run(o1, rep1, cancel1) == 0);
+    REQUIRE(rep1.files.size() == static_cast<size_t>(n));
+
+    RecordingReporter rep8;
+    std::atomic<bool> cancel8{false};
+    Options o8 = opts(t.path / "src", t.path / "out8");
+    o8.jobs = 8;
+    REQUIRE(run(o8, rep8, cancel8) == 0);
+    REQUIRE(rep8.files.size() == static_cast<size_t>(n));
+
+    std::map<std::string, double> single_threaded_peak;
+    for (auto& r : rep1.files) {
+        REQUIRE(r.outcome == Outcome::Converted);
+        REQUIRE(r.peak_dbfs.has_value());
+        single_threaded_peak[path_to_utf8(r.job.source.filename())] = *r.peak_dbfs;
+    }
+    REQUIRE(single_threaded_peak.size() == static_cast<size_t>(n));
+
+    int compared = 0;
+    for (auto& r : rep8.files) {
+        REQUIRE(r.outcome == Outcome::Converted);
+        REQUIRE(r.peak_dbfs.has_value());
+        auto it = single_threaded_peak.find(path_to_utf8(r.job.source.filename()));
+        REQUIRE(it != single_threaded_peak.end());
+        REQUIRE(*r.peak_dbfs == Catch::Approx(it->second).margin(0.01));
+        ++compared;
+    }
+    REQUIRE(compared == n);
 }

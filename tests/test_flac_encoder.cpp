@@ -86,19 +86,6 @@ TEST_CASE("FlacEncoder writes tags as Vorbis comments and keeps 96 kHz") {
     REQUIRE(d->tags().genre == "House");
 }
 
-TEST_CASE("FlacEncoder reports no decoded peak") {
-    TempDir t;
-    std::string err;
-    auto d = Decoder::open(make_audio(t.path / "a.wav", {.seconds = 0.2}), err);
-    REQUIRE(d);
-    std::atomic<bool> cancel{false};
-    EncodeSettings s;
-    s.format = Format::Flac;
-    auto enc = make_encoder(s);
-    REQUIRE(enc->encode(*d, t.path / "a.flac", {}, cancel, nullptr) == "");
-    REQUIRE_FALSE(enc->decoded_peak_dbfs().has_value());
-}
-
 TEST_CASE("FlacEncoder stops when cancelled") {
     TempDir t;
     std::string err;

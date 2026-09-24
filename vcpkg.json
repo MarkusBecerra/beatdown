@@ -4,7 +4,7 @@
   "description": "Local batch converter: WAV/AIFF/FLAC -> 320 kbps MP3 or FLAC for rekordbox",
   "license": "MIT",
   "dependencies": [
-    { "name": "libsndfile", "default-features": false, "features": ["external-libs"] },
+    { "name": "libsndfile", "default-features": false, "features": ["external-libs", "mpeg"] },
     "mp3lame",
     "cli11",
     "catch2"
