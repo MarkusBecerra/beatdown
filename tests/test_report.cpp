@@ -126,7 +126,9 @@ TEST_CASE("ConsoleReporter prints the failure recap under --quiet") {
 
 // Task 18: with --verbose, a converted MP3's peak dBFS is appended to its ✓ line; without
 // --verbose it stays hidden, and a FLAC result (no peak_dbfs) shows neither.
-TEST_CASE("ConsoleReporter shows the decoded peak on the verbose ✓ line only") {
+// Test names stay ASCII: ctest passes them to the test binary on the command line, and
+// Windows converts that through the ANSI code page, so a non-ASCII name matches no test.
+TEST_CASE("ConsoleReporter shows the decoded peak on the verbose converted-file line only") {
     FileResult r; r.job.source = "a.wav"; r.job.output = "/out/a.mp3"; r.outcome = Outcome::Converted; r.peak_dbfs = 0.48;
 
     std::ostringstream verbose_out;
