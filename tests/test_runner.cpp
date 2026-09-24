@@ -15,18 +15,18 @@ using namespace beatdown;
 using Catch::Matchers::ContainsSubstring;
 
 struct RecordingReporter : Reporter {
-    vector<FileResult> files; vector<Job> skips; vector<string> errors; Summary last; SpaceCheck space_seen; bool saw_plan = false; mutex m;
+    vector<FileResult> files; vector<Job> skips; vector<string> errors; Summary last; SpaceCheck space_seen; bool saw_plan = false; mutex mutex_instance;
     vector<pair<Job, int64_t>> would_converts;
     void plan(const Plan&, int, const Options&) override { saw_plan = true; }
-    void space(const SpaceCheck& s, bool) override { space_seen = s; }
-    void file(const FileResult& r) override { lock_guard<mutex> l(m); files.push_back(r); }
-    void skipped(const Job& j) override { skips.push_back(j); }
-    void would_convert(const Job& j, int64_t estimated_bytes) override { lock_guard<mutex> l(m); would_converts.push_back({j, estimated_bytes}); }
-    void summary(const Summary& s) override { last = s; }
-    void error(const string& e) override { errors.push_back(e); }
+    void space(const SpaceCheck& space_check, bool) override { space_seen = space_check; }
+    void file(const FileResult& result) override { lock_guard<mutex> lock(mutex_instance); files.push_back(result); }
+    void skipped(const Job& job) override { skips.push_back(job); }
+    void would_convert(const Job& job, int64_t estimated_bytes) override { lock_guard<mutex> lock(mutex_instance); would_converts.push_back({job, estimated_bytes}); }
+    void summary(const Summary& summary_data) override { last = summary_data; }
+    void error(const string& message) override { errors.push_back(message); }
 };
 
-static Options opts(const fs::path& src, const fs::path& dst) { Options o; o.source = src; o.destination = dst; o.jobs = 2; return o; }
+static Options make_options(const fs::path& src, const fs::path& destination) { Options options; options.source = src; options.destination = destination; options.jobs = 2; return options; }
 
 // Finding 2 (fix round 1): restores the previous current directory even if a REQUIRE fails and
 // unwinds the test case (Catch2 aborts a failed test via a normal C++ exception, so this
@@ -34,57 +34,57 @@ static Options opts(const fs::path& src, const fs::path& dst) { Options o; o.sou
 struct CurrentDirGuard {
     fs::path previous;
     explicit CurrentDirGuard(const fs::path& to) : previous(fs::current_path()) { fs::current_path(to); }
-    ~CurrentDirGuard() { error_code ec; fs::current_path(previous, ec); }
+    ~CurrentDirGuard() { error_code fs_error; fs::current_path(previous, fs_error); }
 };
 
 TEST_CASE("run converts, skips, ignores and fails the right files and exits 1 on a failure") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.2});
-    make_audio(t.path / "src/sub/b.aiff", {.container = SF_FORMAT_AIFF, .seconds = 0.2});
-    write_bytes(t.path / "src/bad.wav", kCorruptWav);
-    write_bytes(t.path / "src/notes.txt", "x");
-    write_bytes(t.path / "out/a.mp3", "already");
-    RecordingReporter rep; atomic<bool> cancel{false};
-    int code = run(opts(t.path / "src", t.path / "out"), rep, cancel);
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.2});
+    make_audio(temp_dir.path / "src/sub/b.aiff", {.container = SF_FORMAT_AIFF, .seconds = 0.2});
+    write_bytes(temp_dir.path / "src/bad.wav", kCorruptWav);
+    write_bytes(temp_dir.path / "src/notes.txt", "x");
+    write_bytes(temp_dir.path / "out/a.mp3", "already");
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    int code = run(make_options(temp_dir.path / "src", temp_dir.path / "out"), reporter, cancel);
     REQUIRE(code == 1);
-    REQUIRE(rep.saw_plan);
-    REQUIRE(rep.last.converted == 1);
-    REQUIRE(rep.last.skipped == 1);
-    REQUIRE(rep.last.failed == 1);
-    REQUIRE(rep.last.ignored == 1);
-    REQUIRE(rep.last.failures.size() == 1);
-    REQUIRE(fs::exists(t.path / "out/sub/b.mp3"));
-    REQUIRE(read_file(t.path / "out/a.mp3") == "already");
-    REQUIRE(rep.last.bytes_out > 0);
+    REQUIRE(reporter.saw_plan);
+    REQUIRE(reporter.last.converted == 1);
+    REQUIRE(reporter.last.skipped == 1);
+    REQUIRE(reporter.last.failed == 1);
+    REQUIRE(reporter.last.ignored == 1);
+    REQUIRE(reporter.last.failures.size() == 1);
+    REQUIRE(fs::exists(temp_dir.path / "out/sub/b.mp3"));
+    REQUIRE(read_file(temp_dir.path / "out/a.mp3") == "already");
+    REQUIRE(reporter.last.bytes_out > 0);
 }
 
 TEST_CASE("run exits 0 when everything converts and 0 again when everything is skipped") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.2});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    REQUIRE(run(opts(t.path / "src", t.path / "out"), rep, cancel) == 0);
-    auto mtime = fs::last_write_time(t.path / "out/a.mp3");
-    string bytes = read_file(t.path / "out/a.mp3");
-    RecordingReporter rep2;
-    REQUIRE(run(opts(t.path / "src", t.path / "out"), rep2, cancel) == 0);
-    REQUIRE(rep2.last.skipped == 1);
-    REQUIRE(rep2.last.converted == 0);
-    REQUIRE(read_file(t.path / "out/a.mp3") == bytes);
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.2});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    REQUIRE(run(make_options(temp_dir.path / "src", temp_dir.path / "out"), reporter, cancel) == 0);
+    auto mtime = fs::last_write_time(temp_dir.path / "out/a.mp3");
+    string bytes = read_file(temp_dir.path / "out/a.mp3");
+    RecordingReporter second_reporter;
+    REQUIRE(run(make_options(temp_dir.path / "src", temp_dir.path / "out"), second_reporter, cancel) == 0);
+    REQUIRE(second_reporter.last.skipped == 1);
+    REQUIRE(second_reporter.last.converted == 0);
+    REQUIRE(read_file(temp_dir.path / "out/a.mp3") == bytes);
     // A6: wrapped in double parens so Catch2 doesn't try to decompose and stringify the
     // fs::file_time_type operands (__int128 duration rep -> ambiguous operator<< on this toolchain).
-    REQUIRE((fs::last_write_time(t.path / "out/a.mp3") == mtime));
+    REQUIRE((fs::last_write_time(temp_dir.path / "out/a.mp3") == mtime));
 }
 
 TEST_CASE("run creates the destination's last component only") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.1});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    REQUIRE(run(opts(t.path / "src", t.path / "newdir"), rep, cancel) == 0);
-    REQUIRE(fs::is_directory(t.path / "newdir"));
-    RecordingReporter rep2;
-    REQUIRE(run(opts(t.path / "src", t.path / "Volumes/LaCie/Music"), rep2, cancel) == 2);
-    REQUIRE_FALSE(fs::exists(t.path / "Volumes"));
-    REQUIRE(rep2.errors.size() == 1);
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.1});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    REQUIRE(run(make_options(temp_dir.path / "src", temp_dir.path / "newdir"), reporter, cancel) == 0);
+    REQUIRE(fs::is_directory(temp_dir.path / "newdir"));
+    RecordingReporter second_reporter;
+    REQUIRE(run(make_options(temp_dir.path / "src", temp_dir.path / "Volumes/LaCie/Music"), second_reporter, cancel) == 2);
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "Volumes"));
+    REQUIRE(second_reporter.errors.size() == 1);
 }
 
 // Finding 2 (fix round 1): a bare relative destination like "Release" has an empty
@@ -92,129 +92,129 @@ TEST_CASE("run creates the destination's last component only") {
 // and refuse with exit 2. The runner must resolve both source and destination against the
 // current directory before checking anything.
 TEST_CASE("run resolves a relative source and destination against the current directory") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.1});
-    CurrentDirGuard cwd(t.path);
-    RecordingReporter rep; atomic<bool> cancel{false};
-    REQUIRE(run(opts("src", "Release"), rep, cancel) == 0);
-    REQUIRE(fs::exists(t.path / "Release" / "a.mp3"));
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.1});
+    CurrentDirGuard cwd(temp_dir.path);
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    REQUIRE(run(make_options("src", "Release"), reporter, cancel) == 0);
+    REQUIRE(fs::exists(temp_dir.path / "Release" / "a.mp3"));
 }
 
 TEST_CASE("run --dry-run writes nothing and reports the projection") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.5});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    Options o = opts(t.path / "src", t.path / "out"); o.dry_run = true;
-    REQUIRE(run(o, rep, cancel) == 0);
-    REQUIRE(rep.space_seen.needed > 0);
-    REQUIRE_FALSE(fs::exists(t.path / "out/a.mp3"));
-    REQUIRE(rep.last.converted == 0);
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.5});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    Options options = make_options(temp_dir.path / "src", temp_dir.path / "out"); options.dry_run = true;
+    REQUIRE(run(options, reporter, cancel) == 0);
+    REQUIRE(reporter.space_seen.needed > 0);
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "out/a.mp3"));
+    REQUIRE(reporter.last.converted == 0);
     // A2: exactly one would_convert entry with a positive estimate, no file() calls, and the
     // summary flagged as a dry run.
-    REQUIRE(rep.last.dry_run);
-    REQUIRE(rep.last.would_convert == 1);
-    REQUIRE(rep.files.empty());
-    REQUIRE(rep.would_converts.size() == 1);
-    REQUIRE(rep.would_converts[0].second > 0);
+    REQUIRE(reporter.last.dry_run);
+    REQUIRE(reporter.last.would_convert == 1);
+    REQUIRE(reporter.files.empty());
+    REQUIRE(reporter.would_converts.size() == 1);
+    REQUIRE(reporter.would_converts[0].second > 0);
 }
 
 // Finding 3(a) (fix round 1): a new destination given with a trailing slash has no filename
 // component, so a naive single parent_path() lands back on the non-existent destination itself;
-// the space check must measure its real parent (t.path) instead, which exists and has plenty of
+// the space check must measure its real parent (temp_dir.path) instead, which exists and has plenty of
 // room for one tiny file.
 TEST_CASE("run --dry-run measures the parent of a new trailing-slash destination, not the destination itself") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.2});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    Options o = opts(t.path / "src", fs::path((t.path / "NewRelease").string() + "/"));
-    o.dry_run = true;
-    REQUIRE(run(o, rep, cancel) == 0);
-    // Positive evidence that available_bytes actually measured a real, existing directory (t.path)
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.2});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    Options options = make_options(temp_dir.path / "src", fs::path((temp_dir.path / "NewRelease").string() + "/"));
+    options.dry_run = true;
+    REQUIRE(run(options, reporter, cancel) == 0);
+    // Positive evidence that available_bytes actually measured a real, existing directory (temp_dir.path)
     // rather than the space check being silently skipped: a default-constructed SpaceCheck (never
     // set by rep.space()) also has ok == true and available == 0, so checking .ok alone would not
     // catch the space check having been skipped entirely, e.g. by mis-resolving the non-existent
     // "NewRelease" itself and treating that as an unmeasurable directory.
-    REQUIRE(rep.space_seen.available > 0);
-    REQUIRE(rep.space_seen.ok);
-    REQUIRE(rep.errors.empty());
-    REQUIRE_FALSE(fs::exists(t.path / "NewRelease"));
+    REQUIRE(reporter.space_seen.available > 0);
+    REQUIRE(reporter.space_seen.ok);
+    REQUIRE(reporter.errors.empty());
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "NewRelease"));
 }
 
 TEST_CASE("run refuses when the free-space estimate is not met") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.5});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    Options o = opts(t.path / "src", t.path / "out");
-    o.encode.format = Format::Flac;
-    o.space_override_available = 10;   // test hook: pretend only 10 bytes are free
-    REQUIRE(run(o, rep, cancel) == 1);
-    REQUIRE_FALSE(fs::exists(t.path / "out/a.flac"));
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.5});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    Options options = make_options(temp_dir.path / "src", temp_dir.path / "out");
+    options.encode.format = Format::Flac;
+    options.space_override_available = 10;   // test hook: pretend only 10 bytes are free
+    REQUIRE(run(options, reporter, cancel) == 1);
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "out/a.flac"));
     // Finding 3(b): R28 refuses before writing anything, including creating the destination
     // folder itself — the old ordering created it before checking space.
-    REQUIRE_FALSE(fs::exists(t.path / "out"));
-    REQUIRE_FALSE(rep.errors.empty());
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "out"));
+    REQUIRE_FALSE(reporter.errors.empty());
 }
 
 // Finding 3(c): a dry run previews exactly what the real run would do, including refusing for
 // lack of space — it must no longer exit 0 while reporting "Not enough space".
 TEST_CASE("run --dry-run also refuses when the free-space estimate is not met") {
-    TempDir t;
-    make_audio(t.path / "src/a.wav", {.seconds = 0.5});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    Options o = opts(t.path / "src", t.path / "out");
-    o.dry_run = true;
-    o.space_override_available = 10;   // test hook: pretend only 10 bytes are free
-    REQUIRE(run(o, rep, cancel) == 1);
-    REQUIRE_FALSE(rep.space_seen.ok);
-    REQUIRE_FALSE(fs::exists(t.path / "out"));
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/a.wav", {.seconds = 0.5});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    Options options = make_options(temp_dir.path / "src", temp_dir.path / "out");
+    options.dry_run = true;
+    options.space_override_available = 10;   // test hook: pretend only 10 bytes are free
+    REQUIRE(run(options, reporter, cancel) == 1);
+    REQUIRE_FALSE(reporter.space_seen.ok);
+    REQUIRE_FALSE(fs::exists(temp_dir.path / "out"));
 }
 
 TEST_CASE("run stops launching after a disk-full failure and after cancellation") {
-    TempDir t;
-    for (int i = 0; i < 6; ++i) make_audio(t.path / ("src/" + to_string(i) + ".wav"), {.seconds = 0.1});
-    RecordingReporter rep; atomic<bool> cancel{false};
+    TempDir temp_dir;
+    for (int index = 0; index < 6; ++index) make_audio(temp_dir.path / ("src/" + to_string(index) + ".wav"), {.seconds = 0.1});
+    RecordingReporter reporter; atomic<bool> cancel{false};
     atomic<int> calls{0};
-    Options o = opts(t.path / "src", t.path / "out"); o.jobs = 1;
-    int code = run(o, rep, cancel, [&](const Job& j, const Options&, const atomic<bool>&) {
-        FileResult r; r.job = j; calls++;
-        r.outcome = Outcome::Failed; r.error = "No space left on device"; r.disk_full = true;
-        return r;
+    Options options = make_options(temp_dir.path / "src", temp_dir.path / "out"); options.jobs = 1;
+    int code = run(options, reporter, cancel, [&](const Job& job, const Options&, const atomic<bool>&) {
+        FileResult result; result.job = job; calls++;
+        result.outcome = Outcome::Failed; result.error = "No space left on device"; result.disk_full = true;
+        return result;
     });
     REQUIRE(code == 1);
     REQUIRE(calls == 1);
-    REQUIRE(rep.last.failed == 1);
+    REQUIRE(reporter.last.failed == 1);
     // A3: the disk-full stop must be visible on the summary, and every not-yet-started file counts
     // as cancelled.
-    REQUIRE(rep.last.disk_full);
-    REQUIRE(rep.last.cancelled == 5);
+    REQUIRE(reporter.last.disk_full);
+    REQUIRE(reporter.last.cancelled == 5);
 
-    RecordingReporter rep2; atomic<bool> cancel2{false}; atomic<int> calls2{0};
-    int code2 = run(o, rep2, cancel2, [&](const Job& j, const Options&, const atomic<bool>&) {
-        FileResult r; r.job = j; if (++calls2 == 2) cancel2 = true; r.outcome = Outcome::Converted; return r;
+    RecordingReporter second_reporter; atomic<bool> cancel2{false}; atomic<int> calls2{0};
+    int code2 = run(options, second_reporter, cancel2, [&](const Job& job, const Options&, const atomic<bool>&) {
+        FileResult result; result.job = job; if (++calls2 == 2) cancel2 = true; result.outcome = Outcome::Converted; return result;
     });
     REQUIRE(code2 == 130);
     REQUIRE(calls2 == 2);
-    REQUIRE(rep2.last.interrupted);
+    REQUIRE(second_reporter.last.interrupted);
 }
 
 // Two sources, one output: the first in name order (track.aiff) is converted, the other is
 // skipped, and the output really is the kept source's audio (1 s, not the 3 s WAV).
 TEST_CASE("run converts one of two sources that share an output and reports the other as skipped") {
-    TempDir t;
-    make_audio(t.path / "src/track.aiff", {.container = SF_FORMAT_AIFF, .seconds = 1.0});
-    make_audio(t.path / "src/track.wav", {.seconds = 3.0});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    REQUIRE(run(opts(t.path / "src", t.path / "out"), rep, cancel) == 0);
-    REQUIRE(rep.last.converted == 1);
-    REQUIRE(rep.last.skipped == 1);
-    REQUIRE(rep.last.failed == 0);
-    REQUIRE(rep.skips.size() == 1);
-    REQUIRE(rep.skips[0].note == "same output as track.aiff");
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/track.aiff", {.container = SF_FORMAT_AIFF, .seconds = 1.0});
+    make_audio(temp_dir.path / "src/track.wav", {.seconds = 3.0});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    REQUIRE(run(make_options(temp_dir.path / "src", temp_dir.path / "out"), reporter, cancel) == 0);
+    REQUIRE(reporter.last.converted == 1);
+    REQUIRE(reporter.last.skipped == 1);
+    REQUIRE(reporter.last.failed == 0);
+    REQUIRE(reporter.skips.size() == 1);
+    REQUIRE(reporter.skips[0].note == "same output as track.aiff");
     Mp3Info info; string err;
-    REQUIRE(parse_mp3(t.path / "out/track.mp3", info, err));
+    REQUIRE(parse_mp3(temp_dir.path / "out/track.mp3", info, err));
     REQUIRE(info.duration_seconds() == Catch::Approx(1.0).margin(0.2));
     vector<string> names;
-    for (const auto& e : fs::directory_iterator(t.path / "out")) names.push_back(e.path().filename().string());
+    for (const auto& entry : fs::directory_iterator(temp_dir.path / "out")) names.push_back(entry.path().filename().string());
     REQUIRE(names == vector<string>{"track.mp3"});   // and no temp files left behind
 }
 
@@ -231,29 +231,29 @@ TEST_CASE("run never lets an output overwrite a source file reached under a diff
         {"Caf\xC3\xA9.wav", "Cafe\xCC\x81.flac"},          // NFC "Café" vs NFD "Café"
         {"\xC3\x89T\xC3\x89.wav", "\xC3\xA9t\xC3\xA9.flac"} // "ÉTÉ" vs "été"
     };
-    for (const Pair& p : pairs) {
-        TempDir t;
-        fs::path flac_path = t.path / "src" / path_from_utf8(p.flac);
+    for (const Pair& spelling_pair : pairs) {
+        TempDir temp_dir;
+        fs::path flac_path = temp_dir.path / "src" / path_from_utf8(spelling_pair.flac);
         make_audio(flac_path, {.container = SF_FORMAT_FLAC, .subtype = SF_FORMAT_PCM_16, .seconds = 2.0});
-        make_audio(t.path / "src" / path_from_utf8(p.wav), {.seconds = 1.0});
+        make_audio(temp_dir.path / "src" / path_from_utf8(spelling_pair.wav), {.seconds = 1.0});
         string flac_before = read_file(flac_path);
 
-        RecordingReporter rep; atomic<bool> cancel{false};
-        Options o = opts(t.path / "src", t.path / "src");
-        o.encode.format = Format::Flac; o.overwrite = true;
-        run(o, rep, cancel);
+        RecordingReporter reporter; atomic<bool> cancel{false};
+        Options options = make_options(temp_dir.path / "src", temp_dir.path / "src");
+        options.encode.format = Format::Flac; options.overwrite = true;
+        run(options, reporter, cancel);
 
         // Unconditional: whatever the filesystem's semantics, the pre-existing FLAC is untouched.
         REQUIRE(read_file(flac_path) == flac_before);
 
-        string wav_stem = p.wav.substr(0, p.wav.size() - 4);   // strip ".wav"
-        fs::path wav_output = t.path / "src" / path_from_utf8(wav_stem + ".flac");
-        fs::path wav_source = t.path / "src" / path_from_utf8(p.wav);
-        error_code ec;
-        if (fs::equivalent(wav_output, flac_path, ec)) {
-            auto it = find_if(rep.skips.begin(), rep.skips.end(),
-                                    [&](const Job& j) { return j.source == wav_source; });
-            REQUIRE(it != rep.skips.end());
+        string wav_stem = spelling_pair.wav.substr(0, spelling_pair.wav.size() - 4);   // strip ".wav"
+        fs::path wav_output = temp_dir.path / "src" / path_from_utf8(wav_stem + ".flac");
+        fs::path wav_source = temp_dir.path / "src" / path_from_utf8(spelling_pair.wav);
+        error_code fs_error;
+        if (fs::equivalent(wav_output, flac_path, fs_error)) {
+            auto it = find_if(reporter.skips.begin(), reporter.skips.end(),
+                                    [&](const Job& job) { return job.source == wav_source; });
+            REQUIRE(it != reporter.skips.end());
             REQUIRE(it->note == "output would overwrite a source file");
         }
     }
@@ -266,75 +266,75 @@ TEST_CASE("run never lets an output overwrite a source file reached under a diff
 // clearly different lengths, which land in other size buckets and must be skipped over, not let
 // the real match slip through.
 TEST_CASE("run's overwrite check still finds a filesystem-equal name among differently sized siblings") {
-    TempDir t;
-    fs::path flac_path = t.path / "src" / path_from_utf8("Cafe\xCC\x81.flac");   // NFD "Café"
+    TempDir temp_dir;
+    fs::path flac_path = temp_dir.path / "src" / path_from_utf8("Cafe\xCC\x81.flac");   // NFD "Café"
     make_audio(flac_path, {.container = SF_FORMAT_FLAC, .subtype = SF_FORMAT_PCM_16, .seconds = 2.0});
-    fs::path wav_source = t.path / "src" / path_from_utf8("Caf\xC3\xA9.wav");    // NFC "Café"
+    fs::path wav_source = temp_dir.path / "src" / path_from_utf8("Caf\xC3\xA9.wav");    // NFC "Café"
     make_audio(wav_source, {.seconds = 1.0});
     // Extra same-folder sources with clearly different lengths (so clearly different byte sizes),
     // populating other size buckets in the same canonical-parent bucket as the twin pair above.
-    make_audio(t.path / "src/other1.wav", {.seconds = 0.3});
-    make_audio(t.path / "src/other2.wav", {.seconds = 0.7});
-    make_audio(t.path / "src/other3.wav", {.seconds = 1.5});
+    make_audio(temp_dir.path / "src/other1.wav", {.seconds = 0.3});
+    make_audio(temp_dir.path / "src/other2.wav", {.seconds = 0.7});
+    make_audio(temp_dir.path / "src/other3.wav", {.seconds = 1.5});
     string flac_before = read_file(flac_path);
 
-    RecordingReporter rep; atomic<bool> cancel{false};
-    Options o = opts(t.path / "src", t.path / "src");
-    o.encode.format = Format::Flac; o.overwrite = true;
-    run(o, rep, cancel);
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    Options options = make_options(temp_dir.path / "src", temp_dir.path / "src");
+    options.encode.format = Format::Flac; options.overwrite = true;
+    run(options, reporter, cancel);
 
     // Unconditional: whatever the filesystem's semantics, the pre-existing FLAC is untouched.
     REQUIRE(read_file(flac_path) == flac_before);
 
-    fs::path wav_output = t.path / "src" / path_from_utf8("Caf\xC3\xA9.flac");
-    error_code ec;
-    if (fs::equivalent(wav_output, flac_path, ec)) {
-        auto it = find_if(rep.skips.begin(), rep.skips.end(),
-                                [&](const Job& j) { return j.source == wav_source; });
-        REQUIRE(it != rep.skips.end());
+    fs::path wav_output = temp_dir.path / "src" / path_from_utf8("Caf\xC3\xA9.flac");
+    error_code fs_error;
+    if (fs::equivalent(wav_output, flac_path, fs_error)) {
+        auto it = find_if(reporter.skips.begin(), reporter.skips.end(),
+                                [&](const Job& job) { return job.source == wav_source; });
+        REQUIRE(it != reporter.skips.end());
         REQUIRE(it->note == "output would overwrite a source file");
     }
 }
 
 TEST_CASE("run reports a missing source as a usage error") {
-    TempDir t;
-    RecordingReporter rep; atomic<bool> cancel{false};
-    REQUIRE(run(opts(t.path / "nope", t.path / "out"), rep, cancel) == 2);
+    TempDir temp_dir;
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    REQUIRE(run(make_options(temp_dir.path / "nope", temp_dir.path / "out"), reporter, cancel) == 2);
 }
 
 // A4: run_parallel rethrows a job's first exception on the caller; the runner must not let that
 // escape from its per-job lambda, or one bad file would abort every other file in the batch.
 TEST_CASE("run turns an exception from convert into a failed file and keeps converting the rest") {
-    TempDir t;
-    for (int i = 0; i < 3; ++i) make_audio(t.path / ("src/" + to_string(i) + ".wav"), {.seconds = 0.1});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    int code = run(opts(t.path / "src", t.path / "out"), rep, cancel, [&](const Job& j, const Options&, const atomic<bool>&) -> FileResult {
-        if (j.source.filename().string() == "1.wav") throw runtime_error("boom");
-        FileResult r; r.job = j; r.outcome = Outcome::Converted; return r;
+    TempDir temp_dir;
+    for (int index = 0; index < 3; ++index) make_audio(temp_dir.path / ("src/" + to_string(index) + ".wav"), {.seconds = 0.1});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    int code = run(make_options(temp_dir.path / "src", temp_dir.path / "out"), reporter, cancel, [&](const Job& job, const Options&, const atomic<bool>&) -> FileResult {
+        if (job.source.filename().string() == "1.wav") throw runtime_error("boom");
+        FileResult result; result.job = job; result.outcome = Outcome::Converted; return result;
     });
     REQUIRE(code == 1);
-    REQUIRE(rep.last.failed == 1);
-    REQUIRE(rep.last.converted == 2);
-    REQUIRE(rep.last.failures.size() == 1);
-    REQUIRE_THAT(rep.last.failures[0].error, ContainsSubstring("boom"));
+    REQUIRE(reporter.last.failed == 1);
+    REQUIRE(reporter.last.converted == 2);
+    REQUIRE(reporter.last.failures.size() == 1);
+    REQUIRE_THAT(reporter.last.failures[0].error, ContainsSubstring("boom"));
 }
 
 // Task 18: Summary.hot counts converted files whose decoded peak is above +1.0 dBFS -- a
 // FileResult with peak +2.3 dBFS counts, one with +0.5 dBFS (a typical loud master, per the
 // measurement spike) does not.
 TEST_CASE("run counts Summary.hot from converted files whose decoded peak is above +1.0 dBFS") {
-    TempDir t;
-    make_audio(t.path / "src/hot.wav", {.seconds = 0.1});
-    make_audio(t.path / "src/warm.wav", {.seconds = 0.1});
-    RecordingReporter rep; atomic<bool> cancel{false};
-    int code = run(opts(t.path / "src", t.path / "out"), rep, cancel, [&](const Job& j, const Options&, const atomic<bool>&) -> FileResult {
-        FileResult r; r.job = j; r.outcome = Outcome::Converted;
-        r.peak_dbfs = j.source.filename().string() == "hot.wav" ? 2.3 : 0.5;
-        return r;
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/hot.wav", {.seconds = 0.1});
+    make_audio(temp_dir.path / "src/warm.wav", {.seconds = 0.1});
+    RecordingReporter reporter; atomic<bool> cancel{false};
+    int code = run(make_options(temp_dir.path / "src", temp_dir.path / "out"), reporter, cancel, [&](const Job& job, const Options&, const atomic<bool>&) -> FileResult {
+        FileResult result; result.job = job; result.outcome = Outcome::Converted;
+        result.peak_dbfs = job.source.filename().string() == "hot.wav" ? 2.3 : 0.5;
+        return result;
     });
     REQUIRE(code == 0);
-    REQUIRE(rep.last.converted == 2);
-    REQUIRE(rep.last.hot == 1);
+    REQUIRE(reporter.last.converted == 2);
+    REQUIRE(reporter.last.hot == 1);
 }
 
 // Task 18 fix round 1: the round-1 review found mpglib's hip_decode API (used by the original
@@ -345,42 +345,42 @@ TEST_CASE("run counts Summary.hot from converted files whose decoded peak is abo
 // levels through the full pipeline (real encode + real verify_content) once single-threaded and
 // once at high concurrency, and checks every file still converts with the same decoded peak.
 TEST_CASE("run at high concurrency (--jobs 8) matches single-threaded per-file decoded peaks") {
-    TempDir t;
-    const int n = 12;
-    for (int i = 0; i < n; ++i) {
-        double db = (i % 2 == 0) ? -6.0 : -30.0;
-        make_audio(t.path / ("src/" + to_string(i) + ".wav"), {.seconds = 2.0, .amplitude = amp_for_dbfs(db)});
+    TempDir temp_dir;
+    const int file_count = 12;
+    for (int index = 0; index < file_count; ++index) {
+        double db = (index % 2 == 0) ? -6.0 : -30.0;
+        make_audio(temp_dir.path / ("src/" + to_string(index) + ".wav"), {.seconds = 2.0, .amplitude = amp_for_dbfs(db)});
     }
-    RecordingReporter rep1;
-    atomic<bool> cancel1{false};
-    Options o1 = opts(t.path / "src", t.path / "out1");
-    o1.jobs = 1;
-    REQUIRE(run(o1, rep1, cancel1) == 0);
-    REQUIRE(rep1.files.size() == static_cast<size_t>(n));
+    RecordingReporter single_threaded_reporter;
+    atomic<bool> cancel_single{false};
+    Options single_threaded_options = make_options(temp_dir.path / "src", temp_dir.path / "out1");
+    single_threaded_options.jobs = 1;
+    REQUIRE(run(single_threaded_options, single_threaded_reporter, cancel_single) == 0);
+    REQUIRE(single_threaded_reporter.files.size() == static_cast<size_t>(file_count));
 
-    RecordingReporter rep8;
-    atomic<bool> cancel8{false};
-    Options o8 = opts(t.path / "src", t.path / "out8");
-    o8.jobs = 8;
-    REQUIRE(run(o8, rep8, cancel8) == 0);
-    REQUIRE(rep8.files.size() == static_cast<size_t>(n));
+    RecordingReporter concurrent_reporter;
+    atomic<bool> cancel_concurrent{false};
+    Options concurrent_options = make_options(temp_dir.path / "src", temp_dir.path / "out8");
+    concurrent_options.jobs = 8;
+    REQUIRE(run(concurrent_options, concurrent_reporter, cancel_concurrent) == 0);
+    REQUIRE(concurrent_reporter.files.size() == static_cast<size_t>(file_count));
 
     map<string, double> single_threaded_peak;
-    for (auto& r : rep1.files) {
-        REQUIRE(r.outcome == Outcome::Converted);
-        REQUIRE(r.peak_dbfs.has_value());
-        single_threaded_peak[path_to_utf8(r.job.source.filename())] = *r.peak_dbfs;
+    for (auto& result : single_threaded_reporter.files) {
+        REQUIRE(result.outcome == Outcome::Converted);
+        REQUIRE(result.peak_dbfs.has_value());
+        single_threaded_peak[path_to_utf8(result.job.source.filename())] = *result.peak_dbfs;
     }
-    REQUIRE(single_threaded_peak.size() == static_cast<size_t>(n));
+    REQUIRE(single_threaded_peak.size() == static_cast<size_t>(file_count));
 
     int compared = 0;
-    for (auto& r : rep8.files) {
-        REQUIRE(r.outcome == Outcome::Converted);
-        REQUIRE(r.peak_dbfs.has_value());
-        auto it = single_threaded_peak.find(path_to_utf8(r.job.source.filename()));
+    for (auto& result : concurrent_reporter.files) {
+        REQUIRE(result.outcome == Outcome::Converted);
+        REQUIRE(result.peak_dbfs.has_value());
+        auto it = single_threaded_peak.find(path_to_utf8(result.job.source.filename()));
         REQUIRE(it != single_threaded_peak.end());
-        REQUIRE(*r.peak_dbfs == Catch::Approx(it->second).margin(0.01));
+        REQUIRE(*result.peak_dbfs == Catch::Approx(it->second).margin(0.01));
         ++compared;
     }
-    REQUIRE(compared == n);
+    REQUIRE(compared == file_count);
 }

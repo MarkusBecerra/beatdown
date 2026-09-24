@@ -10,20 +10,20 @@ namespace beatdown {
 namespace {
 int64_t read_frames(Decoder& in, int32_t* buf, int64_t frames) { return in.read_int(buf, frames); }
 int64_t read_frames(Decoder& in, float* buf, int64_t frames) { return in.read_float(buf, frames); }
-sf_count_t write_frames(SNDFILE* sf, const int32_t* buf, sf_count_t frames) { return sf_writef_int(sf, buf, frames); }
-sf_count_t write_frames(SNDFILE* sf, const float* buf, sf_count_t frames) { return sf_writef_float(sf, buf, frames); }
+sf_count_t write_frames(SNDFILE* sndfile, const int32_t* buf, sf_count_t frames) { return sf_writef_int(sndfile, buf, frames); }
+sf_count_t write_frames(SNDFILE* sndfile, const float* buf, sf_count_t frames) { return sf_writef_float(sndfile, buf, frames); }
 
-// Copies every frame of `in` into `sf` as `Sample`. int32_t keeps integer PCM exact (16/24-bit
+// Copies every frame of `in` into `sndfile` as `Sample`. int32_t keeps integer PCM exact (16/24-bit
 // bit-exact, 32-bit truncated to 24); float sources must go through float, because libsndfile
 // doesn't scale float data on an integer read (it would round the ±1.0 samples to 0/±1 — silence).
 template <typename Sample>
-string copy_frames(Decoder& in, SNDFILE* sf, const atomic<bool>& cancel) {
+string copy_frames(Decoder& in, SNDFILE* sndfile, const atomic<bool>& cancel) {
     const int64_t kFrames = 4096;
     vector<Sample> buf(static_cast<size_t>(kFrames) * in.info().channels);
-    int64_t n;
-    while ((n = read_frames(in, buf.data(), kFrames)) > 0) {
+    int64_t frames_read;
+    while ((frames_read = read_frames(in, buf.data(), kFrames)) > 0) {
         if (cancel.load()) return "cancelled";
-        if (write_frames(sf, buf.data(), n) != n) return string("FLAC write failed: ") + sf_strerror(sf);
+        if (write_frames(sndfile, buf.data(), frames_read) != frames_read) return string("FLAC write failed: ") + sf_strerror(sndfile);
     }
     return "";
 }
@@ -31,15 +31,15 @@ string copy_frames(Decoder& in, SNDFILE* sf, const atomic<bool>& cancel) {
 
 string FlacEncoder::encode(Decoder& in, const fs::path& out, const Tags& tags,
                            const atomic<bool>& cancel, string* log) {
-    const AudioInfo& a = in.info();
-    int subtype = a.bits <= 8 ? SF_FORMAT_PCM_S8 : a.bits == 16 ? SF_FORMAT_PCM_16 : SF_FORMAT_PCM_24;
+    const AudioInfo& source_info = in.info();
+    int subtype = source_info.bits <= 8 ? SF_FORMAT_PCM_S8 : source_info.bits == 16 ? SF_FORMAT_PCM_16 : SF_FORMAT_PCM_24;
     SF_INFO info{};
-    info.samplerate = a.sample_rate;
-    info.channels = a.channels;
+    info.samplerate = source_info.sample_rate;
+    info.channels = source_info.channels;
     info.format = SF_FORMAT_FLAC | subtype;
-    if (!sf_format_check(&info)) return "libsndfile cannot write FLAC with " + to_string(a.channels) + " channels at " + to_string(a.bits) + " bits";
+    if (!sf_format_check(&info)) return "libsndfile cannot write FLAC with " + to_string(source_info.channels) + " channels at " + to_string(source_info.bits) + " bits";
 
-    SNDFILE* sf;
+    SNDFILE* sndfile;
     string open_err;
     {
         // Task 18 fix round 2: shares Decoder::open()'s lock (see sf_open_mutex()'s doc comment
@@ -47,19 +47,19 @@ string FlacEncoder::encode(Decoder& in, const fs::path& out, const Tags& tags,
         // touches libsndfile's global last-error code, which a concurrent read-mode open racing
         // on the same state could otherwise clobber before it's read below.
         lock_guard<mutex> lock(sf_open_mutex());
-        sf = platform::sf_open_path(out, SFM_WRITE, &info);
-        if (!sf) open_err = sf_strerror(nullptr);
+        sndfile = platform::sf_open_path(out, SFM_WRITE, &info);
+        if (!sndfile) open_err = sf_strerror(nullptr);
     }
-    if (!sf) return "cannot create FLAC: " + open_err;
-    struct Close { SNDFILE* s; ~Close() { if (s) sf_close(s); } } closer{sf};
+    if (!sndfile) return "cannot create FLAC: " + open_err;
+    struct Close { SNDFILE* handle; ~Close() { if (handle) sf_close(handle); } } closer{sndfile};
 
     double level = 1.0;  // libsndfile maps 1.0 to FLAC compression level 8
-    sf_command(sf, SFC_SET_COMPRESSION_LEVEL, &level, sizeof(level));
-    sf_command(sf, SFC_SET_CLIPPING, nullptr, SF_TRUE);
+    sf_command(sndfile, SFC_SET_COMPRESSION_LEVEL, &level, sizeof(level));
+    sf_command(sndfile, SFC_SET_CLIPPING, nullptr, SF_TRUE);
     // Vorbis comments must be UTF-8: libFLAC rejects anything else and libsndfile ignores the
     // rejection, which crashes. Tags are sanitized when read; this also covers every other source.
-    auto set = [&](int key, const optional<string>& v) {
-        if (v && !v->empty()) sf_set_string(sf, key, sanitize_utf8(*v).c_str());
+    auto set = [&](int key, const optional<string>& value) {
+        if (value && !value->empty()) sf_set_string(sndfile, key, sanitize_utf8(*value).c_str());
     };
     set(SF_STR_TITLE, tags.title);
     set(SF_STR_ARTIST, tags.artist);
@@ -68,12 +68,12 @@ string FlacEncoder::encode(Decoder& in, const fs::path& out, const Tags& tags,
     set(SF_STR_TRACKNUMBER, tags.track);
     set(SF_STR_GENRE, tags.genre);
     set(SF_STR_COMMENT, tags.comment);
-    if (log) *log += "flac: level 8, " + to_string(a.sample_rate) + " Hz, " + to_string(a.bits > 24 ? 24 : a.bits) + "-bit\n";
+    if (log) *log += "flac: level 8, " + to_string(source_info.sample_rate) + " Hz, " + to_string(source_info.bits > 24 ? 24 : source_info.bits) + "-bit\n";
 
-    string e = a.is_float ? copy_frames<float>(in, sf, cancel) : copy_frames<int32_t>(in, sf, cancel);
-    if (!e.empty()) return e;
-    closer.s = nullptr;
-    if (int rc = sf_close(sf); rc != 0) return string("FLAC finalize failed: ") + sf_error_number(rc);
+    string copy_error = source_info.is_float ? copy_frames<float>(in, sndfile, cancel) : copy_frames<int32_t>(in, sndfile, cancel);
+    if (!copy_error.empty()) return copy_error;
+    closer.handle = nullptr;
+    if (int rc = sf_close(sndfile); rc != 0) return string("FLAC finalize failed: ") + sf_error_number(rc);
     return "";
 }
 

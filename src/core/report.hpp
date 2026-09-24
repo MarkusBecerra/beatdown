@@ -28,25 +28,25 @@ struct Summary {
 class Reporter {
 public:
     virtual ~Reporter() = default;
-    virtual void plan(const Plan& p, int jobs, const Options& o) = 0;
-    virtual void space(const SpaceCheck& s, bool dry_run) = 0;
-    virtual void file(const FileResult& r) = 0;
-    virtual void skipped(const Job& j) = 0;
+    virtual void plan(const Plan& job_plan, int jobs, const Options& options) = 0;
+    virtual void space(const SpaceCheck& space_check, bool dry_run) = 0;
+    virtual void file(const FileResult& result) = 0;
+    virtual void skipped(const Job& job) = 0;
     // Dry-run projection for one to_convert job, called once per job in plan order instead of file().
-    virtual void would_convert(const Job& j, int64_t estimated_bytes) = 0;
-    virtual void summary(const Summary& s) = 0;
+    virtual void would_convert(const Job& job, int64_t estimated_bytes) = 0;
+    virtual void summary(const Summary& summary_data) = 0;
     virtual void error(const string& message) = 0;
 };
 
 class ConsoleReporter : public Reporter {
 public:
     ConsoleReporter(ostream& out, bool quiet, bool verbose) : out_(out), quiet_(quiet), verbose_(verbose) {}
-    void plan(const Plan& p, int jobs, const Options& o) override;
-    void space(const SpaceCheck& s, bool dry_run) override;
-    void file(const FileResult& r) override;
-    void skipped(const Job& j) override;
-    void would_convert(const Job& j, int64_t estimated_bytes) override;
-    void summary(const Summary& s) override;
+    void plan(const Plan& job_plan, int jobs, const Options& options) override;
+    void space(const SpaceCheck& space_check, bool dry_run) override;
+    void file(const FileResult& result) override;
+    void skipped(const Job& job) override;
+    void would_convert(const Job& job, int64_t estimated_bytes) override;
+    void summary(const Summary& summary_data) override;
     void error(const string& message) override;
 private:
     ostream& out_;

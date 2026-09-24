@@ -46,7 +46,7 @@ public:
 
 private:
     Decoder() = default;
-    SNDFILE* sf_ = nullptr;
+    SNDFILE* sndfile_ = nullptr;
     AudioInfo info_;
     Tags tags_;
     fs::path path_;

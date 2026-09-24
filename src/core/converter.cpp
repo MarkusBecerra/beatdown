@@ -20,12 +20,12 @@ fs::path temp_path_for(const fs::path& output) {
     return output.parent_path() / path_from_utf8(".beatdown-" + path_to_utf8(output.filename()) + "." + hex + ".part");
 }
 
-Tags resolve_tags(const Decoder& d, const Options& o) {
-    Tags t = d.tags();
-    if (!o.tag_from_name) return t;
-    Tags derived = tags_from_filename(path_to_utf8(d.path().stem()));
-    if (derived.title) derived.title = strip_suffixes(*derived.title, o.strip_suffixes);
-    return merge_tags(t, derived);
+Tags resolve_tags(const Decoder& decoder, const Options& options) {
+    Tags tags = decoder.tags();
+    if (!options.tag_from_name) return tags;
+    Tags derived = tags_from_filename(path_to_utf8(decoder.path().stem()));
+    if (derived.title) derived.title = strip_suffixes(*derived.title, options.strip_suffixes);
+    return merge_tags(tags, derived);
 }
 
 bool looks_like_disk_full(const string& error, int64_t available, int64_t estimated) {
@@ -34,63 +34,63 @@ bool looks_like_disk_full(const string& error, int64_t available, int64_t estima
         || error.find("There is not enough space") != string::npos;
 }
 
-FileResult convert_one(const Job& job, const Options& o, const atomic<bool>& cancel) {
-    FileResult r;
-    r.job = job;
-    auto t0 = chrono::steady_clock::now();
-    auto done = [&](Outcome oc, string err = "") {
-        r.outcome = oc;
-        r.error = std::move(err);
-        r.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0);
-        return r;
+FileResult convert_one(const Job& job, const Options& options, const atomic<bool>& cancel) {
+    FileResult result;
+    result.job = job;
+    auto start_time = chrono::steady_clock::now();
+    auto done = [&](Outcome outcome, string err = "") {
+        result.outcome = outcome;
+        result.error = std::move(err);
+        result.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start_time);
+        return result;
     };
     if (cancel.load()) return done(Outcome::Cancelled);
 
     string err;
-    auto dec = Decoder::open(job.source, err);
-    if (!dec) return done(Outcome::Failed, err);
+    auto decoder = Decoder::open(job.source, err);
+    if (!decoder) return done(Outcome::Failed, err);
     // Task 18 fix round 2: a source already coded as MP3 (however it's named -- an MP3 renamed
     // to .wav still decodes as MPEG) is refused outright rather than re-encoded, for either
     // output format: re-encoding lossy audio compounds its losses for no benefit.
-    if (dec->info().is_mpeg()) return done(Outcome::Failed, "source is MP3 data — not re-encoding lossy audio");
+    if (decoder->info().is_mpeg()) return done(Outcome::Failed, "source is MP3 data — not re-encoding lossy audio");
 
-    error_code ec;
-    fs::create_directories(job.output.parent_path(), ec);
-    if (ec) return done(Outcome::Failed, "cannot create " + path_to_utf8(job.output.parent_path()) + ": " + ec.message());
+    error_code fs_error;
+    fs::create_directories(job.output.parent_path(), fs_error);
+    if (fs_error) return done(Outcome::Failed, "cannot create " + path_to_utf8(job.output.parent_path()) + ": " + fs_error.message());
 
     fs::path tmp = temp_path_for(job.output);
-    struct Cleanup { const fs::path& p; bool armed = true; ~Cleanup() { if (armed) { error_code e; fs::remove(p, e); } } } cleanup{tmp};
+    struct Cleanup { const fs::path& path; bool armed = true; ~Cleanup() { if (armed) { error_code ignored_error; fs::remove(path, ignored_error); } } } cleanup{tmp};
 
-    Tags tags = resolve_tags(*dec, o);
-    auto enc = make_encoder(o.encode);
+    Tags tags = resolve_tags(*decoder, options);
+    auto encoder = make_encoder(options.encode);
     string log;
-    string e = enc->encode(*dec, tmp, tags, cancel, o.verbose ? &log : nullptr);
-    r.verbose_log = log;
-    if (e == "cancelled") return done(Outcome::Cancelled);
-    if (!e.empty()) {
+    string encode_error = encoder->encode(*decoder, tmp, tags, cancel, options.verbose ? &log : nullptr);
+    result.verbose_log = log;
+    if (encode_error == "cancelled") return done(Outcome::Cancelled);
+    if (!encode_error.empty()) {
         // A write that fails for lack of space is reported so the runner can stop the batch (R28).
-        error_code space_ec;
-        auto sp = fs::space(job.output.parent_path(), space_ec);
-        int64_t estimated = estimate_output_bytes(dec->info(), o.encode);
-        int64_t available = space_ec ? numeric_limits<int64_t>::max() : static_cast<int64_t>(sp.available);
-        r.disk_full = looks_like_disk_full(e, available, estimated);
-        return done(Outcome::Failed, e);
+        error_code space_error;
+        auto space_info = fs::space(job.output.parent_path(), space_error);
+        int64_t estimated = estimate_output_bytes(decoder->info(), options.encode);
+        int64_t available = space_error ? numeric_limits<int64_t>::max() : static_cast<int64_t>(space_info.available);
+        result.disk_full = looks_like_disk_full(encode_error, available, estimated);
+        return done(Outcome::Failed, encode_error);
     }
-    string v = verify_output(tmp, o.encode, dec->info());
-    if (!v.empty()) return done(Outcome::Failed, "verification failed: " + v);
-    ContentCheckResult vc = verify_content(tmp, o.encode, job.source);
-    if (!vc.error.empty()) return done(Outcome::Failed, "verification failed: " + vc.error);
-    r.peak_dbfs = vc.peak_dbfs;
+    string verify_error = verify_output(tmp, options.encode, decoder->info());
+    if (!verify_error.empty()) return done(Outcome::Failed, "verification failed: " + verify_error);
+    ContentCheckResult content_check = verify_content(tmp, options.encode, job.source);
+    if (!content_check.error.empty()) return done(Outcome::Failed, "verification failed: " + content_check.error);
+    result.peak_dbfs = content_check.peak_dbfs;
 
-    auto src_mtime = fs::last_write_time(job.source, ec);
-    if (ec) return done(Outcome::Failed, "cannot read source modification time: " + ec.message());
-    fs::last_write_time(tmp, src_mtime, ec);
-    if (ec) return done(Outcome::Failed, "cannot set modification time: " + ec.message());
+    auto src_mtime = fs::last_write_time(job.source, fs_error);
+    if (fs_error) return done(Outcome::Failed, "cannot read source modification time: " + fs_error.message());
+    fs::last_write_time(tmp, src_mtime, fs_error);
+    if (fs_error) return done(Outcome::Failed, "cannot set modification time: " + fs_error.message());
     // Replaces an existing output (--overwrite) atomically on POSIX and with MSVC's std::filesystem.
-    fs::rename(tmp, job.output, ec);
-    if (ec) return done(Outcome::Failed, "cannot rename to " + path_to_utf8(job.output) + ": " + ec.message());
+    fs::rename(tmp, job.output, fs_error);
+    if (fs_error) return done(Outcome::Failed, "cannot rename to " + path_to_utf8(job.output) + ": " + fs_error.message());
     cleanup.armed = false;
-    r.output_bytes = static_cast<int64_t>(fs::file_size(job.output, ec));
+    result.output_bytes = static_cast<int64_t>(fs::file_size(job.output, fs_error));
     return done(Outcome::Converted);
 }
 

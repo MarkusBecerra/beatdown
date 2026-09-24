@@ -23,20 +23,20 @@ void console_utf8() {
     SetConsoleCP(CP_UTF8);
 }
 
-SNDFILE* sf_open_path(const fs::path& p, int mode, SF_INFO* info) {
-    return sf_wchar_open(p.c_str(), mode, info);
+SNDFILE* sf_open_path(const fs::path& path, int mode, SF_INFO* info) {
+    return sf_wchar_open(path.c_str(), mode, info);
 }
 
-optional<FileId> file_id(const fs::path& p) {
+optional<FileId> file_id(const fs::path& path) {
     // Access 0 (metadata only, no read/write) with full sharing so this never contends with
     // another process's open handle; FILE_FLAG_BACKUP_SEMANTICS is required to open a directory
     // and also relaxes the access checks CreateFileW would otherwise apply.
-    HANDLE h = CreateFileW(p.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    HANDLE handle = CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                             nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return nullopt;
+    if (handle == INVALID_HANDLE_VALUE) return nullopt;
     BY_HANDLE_FILE_INFORMATION info{};
-    bool ok = GetFileInformationByHandle(h, &info) != 0;
-    CloseHandle(h);
+    bool ok = GetFileInformationByHandle(handle, &info) != 0;
+    CloseHandle(handle);
     if (!ok) return nullopt;
     return FileId{static_cast<uint64_t>(info.dwVolumeSerialNumber),
                   (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow};

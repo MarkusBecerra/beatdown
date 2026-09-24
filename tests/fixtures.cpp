@@ -34,8 +34,8 @@ TempDir::TempDir() {
     fs::create_directories(path);
 }
 TempDir::~TempDir() {
-    error_code ec;
-    fs::remove_all(path, ec);
+    error_code ignored_error;
+    fs::remove_all(path, ignored_error);
 }
 
 fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
@@ -44,9 +44,9 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     info.samplerate = spec.rate;
     info.channels = spec.channels;
     info.format = spec.container | spec.subtype;
-    SNDFILE* sf = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
-    if (!sf) throw runtime_error("fixture open failed: " + beatdown::path_to_utf8(file) + ": " + sf_strerror(nullptr));
-    auto set = [&](int key, const optional<string>& v) { if (v) sf_set_string(sf, key, v->c_str()); };
+    SNDFILE* sndfile = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
+    if (!sndfile) throw runtime_error("fixture open failed: " + beatdown::path_to_utf8(file) + ": " + sf_strerror(nullptr));
+    auto set = [&](int key, const optional<string>& value) { if (value) sf_set_string(sndfile, key, value->c_str()); };
     set(SF_STR_TITLE, spec.tags.title);
     set(SF_STR_ARTIST, spec.tags.artist);
     set(SF_STR_ALBUM, spec.tags.album);
@@ -57,12 +57,12 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
 
     const int64_t frames = static_cast<int64_t>(spec.rate * spec.seconds);
     vector<float> buf(static_cast<size_t>(frames) * spec.channels);
-    for (int64_t i = 0; i < frames; ++i) {
-        float v = static_cast<float>(spec.amplitude * sin(2.0 * kPi * spec.freq_hz * i / spec.rate));
-        for (int c = 0; c < spec.channels; ++c) buf[i * spec.channels + c] = v;
+    for (int64_t frame = 0; frame < frames; ++frame) {
+        float sample = static_cast<float>(spec.amplitude * sin(2.0 * kPi * spec.freq_hz * frame / spec.rate));
+        for (int channel = 0; channel < spec.channels; ++channel) buf[frame * spec.channels + channel] = sample;
     }
-    sf_writef_float(sf, buf.data(), frames);
-    sf_close(sf);
+    sf_writef_float(sndfile, buf.data(), frames);
+    sf_close(sndfile);
     return file;
 }
 

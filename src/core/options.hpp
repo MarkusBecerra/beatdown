@@ -28,8 +28,8 @@ struct Options {
 
     int effective_jobs() const {
         if (jobs > 0) return jobs;
-        unsigned n = thread::hardware_concurrency();
-        return n == 0 ? 1 : static_cast<int>(n);
+        unsigned hardware_threads = thread::hardware_concurrency();
+        return hardware_threads == 0 ? 1 : static_cast<int>(hardware_threads);
     }
     const char* output_extension() const {
         return encode.format == Format::Flac ? ".flac" : ".mp3";

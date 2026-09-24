@@ -16,6 +16,6 @@ struct ContentCheckResult {
 // bit-for-bit (within format-appropriate tolerance) comparison. MP3: level comparison after a
 // shared low-pass (removes the encoder's own ~20.3 kHz rolloff from the picture) plus a decoded
 // length check.
-ContentCheckResult verify_content(const fs::path& out, const EncodeSettings& s, const fs::path& source);
+ContentCheckResult verify_content(const fs::path& out, const EncodeSettings& settings, const fs::path& source);
 
 }  // namespace beatdown

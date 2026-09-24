@@ -22,16 +22,16 @@ namespace fs = std::filesystem;
 // "~/x" is common inside quotes in the PRD's own examples, where the shell does not expand it.
 // B1: built with beatdown::path_from_utf8, never the deprecated fs::u8path; HOME/USERPROFILE is
 // used as-is since it's the platform's native string, not UTF-8 bytes to reinterpret.
-static fs::path expand_tilde(const string& s) {
-    if (s.size() >= 2 && s[0] == '~' && (s[1] == '/' || s[1] == '\\')) {
+static fs::path expand_tilde(const string& raw_path) {
+    if (raw_path.size() >= 2 && raw_path[0] == '~' && (raw_path[1] == '/' || raw_path[1] == '\\')) {
 #ifdef _WIN32
         const char* home = getenv("USERPROFILE");
 #else
         const char* home = getenv("HOME");
 #endif
-        if (home) return fs::path(home) / beatdown::path_from_utf8(s.substr(2));
+        if (home) return fs::path(home) / beatdown::path_from_utf8(raw_path.substr(2));
     }
-    return beatdown::path_from_utf8(s);
+    return beatdown::path_from_utf8(raw_path);
 }
 
 static atomic<bool> g_cancel{false};
@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     app.set_version_flag("--version", string("beatdown ") + beatdown::version());
     app.get_formatter()->column_width(22);
 
-    beatdown::Options o;
+    beatdown::Options options;
     string source, destination, format = "mp3";
     int vbr = -1;
     bool no_recursive = false;
@@ -59,52 +59,52 @@ int main(int argc, char** argv) {
     // 16 kHz, so bright material fails the level check even when the length is fine. VBR level 4
     // and 9 similarly fail on real bright-material probes (see the task report for the numbers).
     // None of this is club-quality material at these rates anyway.
-    auto* bitrate = app.add_option("--bitrate", o.encode.bitrate, "MP3 CBR bitrate in kbps (128-320: lower isn't club quality and can't be verified reliably)")
+    auto* bitrate = app.add_option("--bitrate", options.encode.bitrate, "MP3 CBR bitrate in kbps (128-320: lower isn't club quality and can't be verified reliably)")
         ->check(CLI::IsMember({128, 160, 192, 224, 256, 320}))->default_str("320");
     auto* vbr_opt = app.add_option("--vbr", vbr, "MP3 VBR at LAME quality N (0 = best, 8 = lowest verified) instead of --bitrate")
         ->check(CLI::IsMember({0, 1, 2, 3, 5, 6, 7, 8}));
     bitrate->excludes(vbr_opt);
-    app.add_option("--jobs", o.jobs, "Parallel encodes (default: all hardware threads)")->check(CLI::PositiveNumber);
-    app.add_flag("--overwrite", o.overwrite, "Re-encode even if the output already exists");
+    app.add_option("--jobs", options.jobs, "Parallel encodes (default: all hardware threads)")->check(CLI::PositiveNumber);
+    app.add_flag("--overwrite", options.overwrite, "Re-encode even if the output already exists");
     app.add_flag("--no-recursive", no_recursive, "Only the top level of <source>");
-    app.add_flag("--tag-from-name", o.tag_from_name, "Derive Artist/Title from \"Artist - Title\" filenames when the source is untagged");
+    app.add_flag("--tag-from-name", options.tag_from_name, "Derive Artist/Title from \"Artist - Title\" filenames when the source is untagged");
     // Repeatable, one value per occurrence: allow_extra_args(false) stops a single "--strip-suffix
     // X" from also swallowing a following bare token; ->expected(1) is deliberately NOT set here —
     // it would cap the *total* values received across every occurrence at 1 (CLI11's default
     // MultiOptionPolicy::Throw compares the combined count against expected_max_), so a second
     // "--strip-suffix Y" would fail to parse with "At most 1 required but received 2" instead of
     // appending a second entry.
-    app.add_option("--strip-suffix", o.strip_suffixes, "Drop trailing text from the derived Title (repeatable)")->allow_extra_args(false);
-    app.add_flag("--dry-run", o.dry_run, "Show the plan, write nothing");
-    auto* quiet = app.add_flag("--quiet", o.quiet, "Only the summary and failures");
-    auto* verbose = app.add_flag("--verbose", o.verbose, "Encoder settings and skipped files");
+    app.add_option("--strip-suffix", options.strip_suffixes, "Drop trailing text from the derived Title (repeatable)")->allow_extra_args(false);
+    app.add_flag("--dry-run", options.dry_run, "Show the plan, write nothing");
+    auto* quiet = app.add_flag("--quiet", options.quiet, "Only the summary and failures");
+    auto* verbose = app.add_flag("--verbose", options.verbose, "Encoder settings and skipped files");
     quiet->excludes(verbose);
 
     try {
         app.parse(argc, argv);
-    } catch (const CLI::CallForHelp& e) {
-        return app.exit(e);
-    } catch (const CLI::CallForVersion& e) {
-        return app.exit(e);
-    } catch (const CLI::ParseError& e) {
-        app.exit(e);
+    } catch (const CLI::CallForHelp& help) {
+        return app.exit(help);
+    } catch (const CLI::CallForVersion& version) {
+        return app.exit(version);
+    } catch (const CLI::ParseError& parse_error) {
+        app.exit(parse_error);
         return 2;
     }
 
     // Past parsing, an exception is a bug rather than a usage error: say so and exit 1 instead of
     // letting it reach std::terminate.
     try {
-        o.source = expand_tilde(source);
-        o.destination = expand_tilde(destination);
-        o.encode.format = format == "flac" ? beatdown::Format::Flac : beatdown::Format::Mp3;
-        if (vbr >= 0) o.encode.vbr = vbr;
-        o.recursive = !no_recursive;
+        options.source = expand_tilde(source);
+        options.destination = expand_tilde(destination);
+        options.encode.format = format == "flac" ? beatdown::Format::Flac : beatdown::Format::Mp3;
+        if (vbr >= 0) options.encode.vbr = vbr;
+        options.recursive = !no_recursive;
 
         beatdown::platform::install_interrupt_handler(g_cancel);
-        beatdown::ConsoleReporter reporter(cout, o.quiet, o.verbose);
-        return beatdown::run(o, reporter, g_cancel);
-    } catch (const exception& e) {
-        cerr << "beatdown: internal error: " << e.what() << "\n";
+        beatdown::ConsoleReporter reporter(cout, options.quiet, options.verbose);
+        return beatdown::run(options, reporter, g_cancel);
+    } catch (const exception& caught) {
+        cerr << "beatdown: internal error: " << caught.what() << "\n";
         return 1;
     } catch (...) {
         cerr << "beatdown: internal error: unknown exception\n";

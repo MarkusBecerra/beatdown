@@ -17,13 +17,13 @@ struct Plan {
     vector<Job> skipped;
     int ignored = 0;
     int64_t total_source_bytes() const {
-        int64_t n = 0;
-        for (const auto& j : to_convert) n += j.source_bytes;
-        return n;
+        int64_t total = 0;
+        for (const auto& job : to_convert) total += job.source_bytes;
+        return total;
     }
 };
 
-bool is_audio_input(const fs::path& p);
-Plan scan(const Options& opts, string& error);
+bool is_audio_input(const fs::path& path);
+Plan scan(const Options& options, string& error);
 
 }  // namespace beatdown

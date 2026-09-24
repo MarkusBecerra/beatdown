@@ -26,7 +26,7 @@ struct FileResult {
 // A temp path in `output`'s folder, ".beatdown-<output filename>.<8 random hex>.part", with fresh
 // random digits on every call, so two jobs don't write one temp file even if they share an output.
 fs::path temp_path_for(const fs::path& output);
-Tags resolve_tags(const Decoder& d, const Options& o);
+Tags resolve_tags(const Decoder& decoder, const Options& options);
 
 // True if `available` bytes of free space can't cover `estimated` output bytes, or if
 // `error` looks like an OS out-of-space message. `available`/`estimated` are in bytes;
@@ -34,6 +34,6 @@ Tags resolve_tags(const Decoder& d, const Options& o);
 // error-text check applies.
 bool looks_like_disk_full(const string& error, int64_t available, int64_t estimated);
 
-FileResult convert_one(const Job& job, const Options& o, const atomic<bool>& cancel);
+FileResult convert_one(const Job& job, const Options& options, const atomic<bool>& cancel);
 
 }  // namespace beatdown

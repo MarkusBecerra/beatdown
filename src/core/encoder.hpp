@@ -16,6 +16,6 @@ public:
 };
 
 // Mp3 -> LameEncoder; Flac -> FlacEncoder (Task 9)
-unique_ptr<Encoder> make_encoder(const EncodeSettings& s);
+unique_ptr<Encoder> make_encoder(const EncodeSettings& settings);
 
 }  // namespace beatdown

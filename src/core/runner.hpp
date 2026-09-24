@@ -6,5 +6,5 @@
 
 namespace beatdown {
 using ConvertFn = function<FileResult(const Job&, const Options&, const atomic<bool>&)>;
-int run(const Options& o, Reporter& rep, atomic<bool>& cancel, ConvertFn convert = convert_one);
+int run(const Options& options, Reporter& reporter, atomic<bool>& cancel, ConvertFn convert = convert_one);
 }  // namespace beatdown

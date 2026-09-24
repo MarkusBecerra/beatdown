@@ -4,10 +4,10 @@
 using namespace beatdown;
 
 TEST_CASE("utf8 <-> utf16 round-trips BMP and astral characters") {
-    string s = "Måns Zelmerlöw – 東京 🎧";
-    u16string w = utf8_to_utf16(s);
-    REQUIRE(w == u"Måns Zelmerlöw – 東京 🎧");
-    REQUIRE(utf16_to_utf8(w) == s);
+    string text = "Måns Zelmerlöw – 東京 🎧";
+    u16string wide = utf8_to_utf16(text);
+    REQUIRE(wide == u"Måns Zelmerlöw – 東京 🎧");
+    REQUIRE(utf16_to_utf8(wide) == text);
 }
 
 TEST_CASE("utf16_to_utf8 honours a byte-order mark") {
@@ -24,8 +24,8 @@ TEST_CASE("latin1_to_utf8 maps high bytes to two-byte sequences") {
 
 TEST_CASE("path_to_utf8 round-trips a non-ASCII name through path_from_utf8") {
     string name = "Straße.wav";
-    fs::path p = path_from_utf8(name);
-    REQUIRE(path_to_utf8(p) == name);
+    fs::path path = path_from_utf8(name);
+    REQUIRE(path_to_utf8(path) == name);
 }
 
 TEST_CASE("path_from_utf8 preserves a non-ASCII filename's bytes when joined under a directory") {
@@ -37,9 +37,9 @@ TEST_CASE("path_from_utf8 preserves a non-ASCII filename's bytes when joined und
 static const string kReplacement = "\xEF\xBF\xBD";   // U+FFFD in UTF-8
 
 TEST_CASE("sanitize_utf8 returns valid UTF-8 unchanged") {
-    for (string s : {"", "plain ASCII", "Måns Zelmerlöw – 東京 🎧",
+    for (string text : {"", "plain ASCII", "Måns Zelmerlöw – 東京 🎧",
                           "\xED\x9F\xBF", "\xEE\x80\x80", "\xF4\x8F\xBF\xBF", "\xEF\xBF\xBD"})   // U+D7FF, U+E000, U+10FFFF, U+FFFD
-        REQUIRE(sanitize_utf8(s) == s);
+        REQUIRE(sanitize_utf8(text) == text);
 }
 
 TEST_CASE("sanitize_utf8 re-decodes text that isn't UTF-8 as Windows-1252") {
@@ -67,12 +67,12 @@ TEST_CASE("sanitize_utf8 treats every malformed sequence as invalid (overlong / 
 }
 
 TEST_CASE("utf8_to_utf16 replaces an invalid byte with U+FFFD and keeps the bytes after it") {
-    const char16_t r = char16_t(0xFFFD);
-    REQUIRE(utf8_to_utf16("a\xE9" "b") == u16string{u'a', r, u'b'});
-    REQUIRE(utf8_to_utf16("Beyonc\xE9 Mix") == u"Beyonc" + u16string(1, r) + u" Mix");
-    REQUIRE(utf8_to_utf16("\xE2\x28\xA1") == u16string{r, u'(', r});
-    REQUIRE(utf8_to_utf16("\xC0\xAF") == u16string{r, r});
-    REQUIRE(utf8_to_utf16("\xED\xA0\x80") == u16string{r, r, r});
+    const char16_t replacement = char16_t(0xFFFD);
+    REQUIRE(utf8_to_utf16("a\xE9" "b") == u16string{u'a', replacement, u'b'});
+    REQUIRE(utf8_to_utf16("Beyonc\xE9 Mix") == u"Beyonc" + u16string(1, replacement) + u" Mix");
+    REQUIRE(utf8_to_utf16("\xE2\x28\xA1") == u16string{replacement, u'(', replacement});
+    REQUIRE(utf8_to_utf16("\xC0\xAF") == u16string{replacement, replacement});
+    REQUIRE(utf8_to_utf16("\xED\xA0\x80") == u16string{replacement, replacement, replacement});
 }
 
 TEST_CASE("utf16_to_utf8 turns an unpaired surrogate into U+FFFD") {

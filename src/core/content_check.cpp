@@ -13,7 +13,7 @@ namespace beatdown {
 
 namespace {
 
-double db20(double linear) { return 20.0 * log10(linear); }
+double linear_to_db(double linear) { return 20.0 * log10(linear); }
 
 string db_str(double db) {
     if (!isfinite(db)) return db < 0 ? "-inf" : "inf";
@@ -26,64 +26,64 @@ string db_str(double db) {
 
 string verify_flac_content(const fs::path& out, const fs::path& source) {
     string err;
-    auto so = Decoder::open(source, err);
-    if (!so) return "audio content: cannot reopen source: " + err;
-    auto od = Decoder::open(out, err);
-    if (!od) return "audio content: cannot open output: " + err;
+    auto source_decoder = Decoder::open(source, err);
+    if (!source_decoder) return "audio content: cannot reopen source: " + err;
+    auto output_decoder = Decoder::open(out, err);
+    if (!output_decoder) return "audio content: cannot open output: " + err;
 
-    const AudioInfo& si = so->info();
-    const AudioInfo& oi = od->info();
-    if (oi.channels != si.channels)
-        return "audio content: channel count " + to_string(oi.channels) + ", expected " + to_string(si.channels);
-    const int channels = si.channels;
+    const AudioInfo& source_info = source_decoder->info();
+    const AudioInfo& output_info = output_decoder->info();
+    if (output_info.channels != source_info.channels)
+        return "audio content: channel count " + to_string(output_info.channels) + ", expected " + to_string(source_info.channels);
+    const int channels = source_info.channels;
     const int64_t kFrames = 4096;
     int64_t frame_index = 0;
 
-    if (si.is_float) {
+    if (source_info.is_float) {
         // Float/double sources are written as 24-bit FLAC (libsndfile's ceiling): tolerate the
         // resulting ~1-LSB-at-24-bit rounding. A source can legitimately exceed +-1.0 (an
         // over-full-scale float master); the encoder clips to +-1.0 before quantizing
         // (FlacEncoder sets SFC_SET_CLIPPING), so that clamped value -- not the raw source
         // sample -- is what a correct encode is supposed to produce.
         const double kTolerance = 2.0 / 8388608.0;
-        vector<float> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
+        vector<float> source_buf(static_cast<size_t>(kFrames) * channels), output_buf(static_cast<size_t>(kFrames) * channels);
         for (;;) {
-            int64_t sn = so->read_float(sbuf.data(), kFrames);
-            int64_t on = od->read_float(obuf.data(), kFrames);
-            int64_t n = std::min(sn, on);
-            for (int64_t i = 0; i < n; ++i) {
-                for (int c = 0; c < channels; ++c) {
-                    double a = std::clamp(static_cast<double>(sbuf[static_cast<size_t>(i) * channels + c]), -1.0, 1.0);
-                    double b = obuf[static_cast<size_t>(i) * channels + c];
-                    if (fabs(a - b) > kTolerance)
-                        return "audio content: mismatch at frame " + to_string(frame_index + i) + ", channel " + to_string(c);
+            int64_t source_frames_read = source_decoder->read_float(source_buf.data(), kFrames);
+            int64_t output_frames_read = output_decoder->read_float(output_buf.data(), kFrames);
+            int64_t frames_to_compare = std::min(source_frames_read, output_frames_read);
+            for (int64_t offset = 0; offset < frames_to_compare; ++offset) {
+                for (int channel = 0; channel < channels; ++channel) {
+                    double source_sample = std::clamp(static_cast<double>(source_buf[static_cast<size_t>(offset) * channels + channel]), -1.0, 1.0);
+                    double output_sample = output_buf[static_cast<size_t>(offset) * channels + channel];
+                    if (fabs(source_sample - output_sample) > kTolerance)
+                        return "audio content: mismatch at frame " + to_string(frame_index + offset) + ", channel " + to_string(channel);
                 }
             }
-            if (sn != on)
-                return "audio content: frame count " + to_string(frame_index + on) + ", expected " + to_string(frame_index + sn);
-            if (sn == 0) break;
-            frame_index += n;
+            if (source_frames_read != output_frames_read)
+                return "audio content: frame count " + to_string(frame_index + output_frames_read) + ", expected " + to_string(frame_index + source_frames_read);
+            if (source_frames_read == 0) break;
+            frame_index += frames_to_compare;
         }
     } else {
         // 32-bit integer sources are truncated to 24-bit FLAC (libsndfile's ceiling): the low
         // byte can round; <=24-bit sources round-trip bit-exact.
-        bool loose = si.bits >= 32;
-        vector<int32_t> sbuf(static_cast<size_t>(kFrames) * channels), obuf(static_cast<size_t>(kFrames) * channels);
+        bool loose = source_info.bits >= 32;
+        vector<int32_t> source_buf(static_cast<size_t>(kFrames) * channels), output_buf(static_cast<size_t>(kFrames) * channels);
         for (;;) {
-            int64_t sn = so->read_int(sbuf.data(), kFrames);
-            int64_t on = od->read_int(obuf.data(), kFrames);
-            int64_t n = std::min(sn, on);
-            for (int64_t i = 0; i < n; ++i) {
-                for (int c = 0; c < channels; ++c) {
-                    int64_t a = sbuf[static_cast<size_t>(i) * channels + c], b = obuf[static_cast<size_t>(i) * channels + c];
-                    bool bad = loose ? (std::llabs(a - b) >= 256) : (a != b);
-                    if (bad) return "audio content: mismatch at frame " + to_string(frame_index + i) + ", channel " + to_string(c);
+            int64_t source_frames_read = source_decoder->read_int(source_buf.data(), kFrames);
+            int64_t output_frames_read = output_decoder->read_int(output_buf.data(), kFrames);
+            int64_t frames_to_compare = std::min(source_frames_read, output_frames_read);
+            for (int64_t offset = 0; offset < frames_to_compare; ++offset) {
+                for (int channel = 0; channel < channels; ++channel) {
+                    int64_t source_sample = source_buf[static_cast<size_t>(offset) * channels + channel], output_sample = output_buf[static_cast<size_t>(offset) * channels + channel];
+                    bool bad = loose ? (std::llabs(source_sample - output_sample) >= 256) : (source_sample != output_sample);
+                    if (bad) return "audio content: mismatch at frame " + to_string(frame_index + offset) + ", channel " + to_string(channel);
                 }
             }
-            if (sn != on)
-                return "audio content: frame count " + to_string(frame_index + on) + ", expected " + to_string(frame_index + sn);
-            if (sn == 0) break;
-            frame_index += n;
+            if (source_frames_read != output_frames_read)
+                return "audio content: frame count " + to_string(frame_index + output_frames_read) + ", expected " + to_string(frame_index + source_frames_read);
+            if (source_frames_read == 0) break;
+            frame_index += frames_to_compare;
         }
     }
     return "";
@@ -109,32 +109,32 @@ string verify_flac_content(const fs::path& out, const fs::path& source) {
 // review, Important 2). Left inactive (pass-through) when the cutoff would be at or past 0.45x
 // this side's own Nyquist, where a stable biquad can't be designed.
 struct Lowpass {
-    double z[2][2] = {};  // [stage][state]
+    double delay[2][2] = {};  // [stage][state]
     double b0 = 0, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
     bool active = false;
 
-    void design(double rate, double fc) {
-        if (fc >= 0.45 * rate) return;
+    void design(double rate, double cutoff_hz) {
+        if (cutoff_hz >= 0.45 * rate) return;
         active = true;
-        double w0 = 2.0 * 3.14159265358979323846 * fc / rate;
-        double cs = cos(w0), sn = sin(w0);
-        double alpha = sn / (2.0 * 0.70710678118654752440);
+        double w0 = 2.0 * 3.14159265358979323846 * cutoff_hz / rate;
+        double cosine = cos(w0), sine = sin(w0);
+        double alpha = sine / (2.0 * 0.70710678118654752440);
         double a0 = 1.0 + alpha;
-        b0 = (1.0 - cs) / 2.0 / a0;
-        b1 = (1.0 - cs) / a0;
-        b2 = (1.0 - cs) / 2.0 / a0;
-        a1 = (-2.0 * cs) / a0;
+        b0 = (1.0 - cosine) / 2.0 / a0;
+        b1 = (1.0 - cosine) / a0;
+        b2 = (1.0 - cosine) / 2.0 / a0;
+        a1 = (-2.0 * cosine) / a0;
         a2 = (1.0 - alpha) / a0;
     }
-    double process(double x) {
-        if (!active) return x;
+    double process(double sample) {
+        if (!active) return sample;
         for (int stage = 0; stage < 2; ++stage) {
-            double y = b0 * x + z[stage][0];
-            z[stage][0] = b1 * x - a1 * y + z[stage][1];
-            z[stage][1] = b2 * x - a2 * y;
-            x = y;
+            double filtered = b0 * sample + delay[stage][0];
+            delay[stage][0] = b1 * sample - a1 * filtered + delay[stage][1];
+            delay[stage][1] = b2 * sample - a2 * filtered;
+            sample = filtered;
         }
-        return x;
+        return sample;
     }
 };
 
@@ -149,79 +149,79 @@ struct SideStats {
     double peak = 0.0;
     vector<double> block_sumsq[2];
     vector<int64_t> block_count[2];
-    Lowpass lp[2];
+    Lowpass lowpass[2];
 
-    void init(int ch, int r, double fc) {
-        channels = ch;
-        rate = r;
-        for (int c = 0; c < channels; ++c) lp[c].design(rate, fc);
+    void init(int channel_count, int sample_rate, double cutoff_hz) {
+        channels = channel_count;
+        rate = sample_rate;
+        for (int channel = 0; channel < channels; ++channel) lowpass[channel].design(rate, cutoff_hz);
     }
     void add_frame(const float* frame) {
         int64_t block = total_frames / rate;
-        for (int c = 0; c < channels; ++c) {
-            double raw = frame[c];
+        for (int channel = 0; channel < channels; ++channel) {
+            double raw = frame[channel];
             peak = std::max(peak, fabs(raw));
-            double v = lp[c].process(raw);
-            auto& sums = block_sumsq[c];
-            auto& counts = block_count[c];
+            double filtered = lowpass[channel].process(raw);
+            auto& sums = block_sumsq[channel];
+            auto& counts = block_count[channel];
             if (static_cast<size_t>(block) >= sums.size()) {
                 sums.resize(static_cast<size_t>(block) + 1, 0.0);
                 counts.resize(static_cast<size_t>(block) + 1, 0);
             }
-            sums[static_cast<size_t>(block)] += v * v;
+            sums[static_cast<size_t>(block)] += filtered * filtered;
             counts[static_cast<size_t>(block)] += 1;
         }
         ++total_frames;
     }
-    int64_t total_count(int c) const {
-        int64_t n = 0;
-        for (auto v : block_count[c]) n += v;
-        return n;
+    int64_t total_count(int channel) const {
+        int64_t total = 0;
+        for (auto count : block_count[channel]) total += count;
+        return total;
     }
-    double total_sumsq(int c) const {
-        double s = 0.0;
-        for (auto v : block_sumsq[c]) s += v;
-        return s;
+    double total_sumsq(int channel) const {
+        double total = 0.0;
+        for (auto value : block_sumsq[channel]) total += value;
+        return total;
     }
-    double overall_db(int c) const {
-        int64_t n = total_count(c);
-        return n > 0 ? db20(sqrt(total_sumsq(c) / n)) : -numeric_limits<double>::infinity();
+    double overall_db(int channel) const {
+        int64_t count = total_count(channel);
+        return count > 0 ? linear_to_db(sqrt(total_sumsq(channel) / count)) : -numeric_limits<double>::infinity();
     }
     size_t num_blocks() const { return block_sumsq[0].size(); }
-    double block_db(int c, size_t block) const {
-        int64_t n = block_count[c][block];
-        return n > 0 ? db20(sqrt(block_sumsq[c][block] / static_cast<double>(n))) : -numeric_limits<double>::infinity();
+    double block_db(int channel, size_t block) const {
+        int64_t count = block_count[channel][block];
+        return count > 0 ? linear_to_db(sqrt(block_sumsq[channel][block] / static_cast<double>(count))) : -numeric_limits<double>::infinity();
     }
 };
 
-void accumulate(Decoder& d, SideStats& st, double lowpass_fc) {
-    st.init(d.info().channels, d.info().sample_rate, lowpass_fc);
+void accumulate(Decoder& decoder, SideStats& stats, double lowpass_fc) {
+    stats.init(decoder.info().channels, decoder.info().sample_rate, lowpass_fc);
     const int64_t kFrames = 4096;
-    vector<float> buf(static_cast<size_t>(kFrames) * st.channels);
-    int64_t n;
-    while ((n = d.read_float(buf.data(), kFrames)) > 0)
-        for (int64_t i = 0; i < n; ++i) st.add_frame(&buf[static_cast<size_t>(i) * st.channels]);
+    vector<float> buf(static_cast<size_t>(kFrames) * stats.channels);
+    int64_t frames_read;
+    while ((frames_read = decoder.read_float(buf.data(), kFrames)) > 0)
+        for (int64_t frame = 0; frame < frames_read; ++frame) stats.add_frame(&buf[static_cast<size_t>(frame) * stats.channels]);
 }
 
 ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& source) {
-    ContentCheckResult r;
+    ContentCheckResult result;
     string err;
-    auto sd = Decoder::open(source, err);
-    if (!sd) {
-        r.error = "audio content: cannot reopen source: " + err;
-        return r;
+    auto source_decoder = Decoder::open(source, err);
+    if (!source_decoder) {
+        result.error = "audio content: cannot reopen source: " + err;
+        return result;
     }
-    auto od = Decoder::open(out, err);
-    if (!od) {
-        r.error = "audio content: cannot open output: " + err;
-        return r;
+    auto output_decoder = Decoder::open(out, err);
+    if (!output_decoder) {
+        result.error = "audio content: cannot open output: " + err;
+        return result;
     }
 
-    const AudioInfo& si = sd->info();
-    const AudioInfo& oi = od->info();
-    if (oi.channels != si.channels) {
-        r.error = "audio content: channel count " + to_string(oi.channels) + ", expected " + to_string(si.channels);
-        return r;
+    const AudioInfo& source_info = source_decoder->info();
+    const AudioInfo& output_info = output_decoder->info();
+    if (output_info.channels != source_info.channels) {
+        result.error = "audio content: channel count " + to_string(output_info.channels) + ", expected " + to_string(source_info.channels);
+        return result;
     }
 
     // Task 18 fix round 2: one shared analysis cutoff for both sides, so a 32 kHz-class source
@@ -229,42 +229,42 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // lowpass -- that asymmetry, not just a too-high fixed 16 kHz, was rejecting bright material
     // at low sample rates. 0.4x (not 0.45x) leaves the per-side Lowpass::design() Nyquist guard
     // as a pure safety net that a correctly computed shared cutoff should never actually hit.
-    double lowpass_fc = std::min(16000.0, 0.4 * std::min(si.sample_rate, oi.sample_rate));
+    double lowpass_fc = std::min(16000.0, 0.4 * std::min(source_info.sample_rate, output_info.sample_rate));
 
     SideStats src, mp3;
-    accumulate(*sd, src, lowpass_fc);
-    accumulate(*od, mp3, lowpass_fc);
-    r.peak_dbfs = db20(mp3.peak);
+    accumulate(*source_decoder, src, lowpass_fc);
+    accumulate(*output_decoder, mp3, lowpass_fc);
+    result.peak_dbfs = linear_to_db(mp3.peak);
 
     // Length: decoded frames must equal the frames actually read from the source (not the
     // source's declared frame count, which would misreport a truncated *source* as a bad output)
     // exactly at an unchanged rate, else land within +-2 frames of
     // round(source_frames_read * out_rate / in_rate).
-    bool same_rate = oi.sample_rate == si.sample_rate;
+    bool same_rate = output_info.sample_rate == source_info.sample_rate;
     int64_t expected = same_rate ? src.total_frames
-                                  : llround(static_cast<double>(src.total_frames) * oi.sample_rate / si.sample_rate);
+                                  : llround(static_cast<double>(src.total_frames) * output_info.sample_rate / source_info.sample_rate);
     int64_t diff = std::llabs(mp3.total_frames - expected);
     if (same_rate ? (diff != 0) : (diff > 2)) {
-        r.error = "audio content: length " + to_string(mp3.total_frames) + " frames, expected " + to_string(expected) +
+        result.error = "audio content: length " + to_string(mp3.total_frames) + " frames, expected " + to_string(expected) +
                   (same_rate ? "" : " (±2)");
-        return r;
+        return result;
     }
 
     // (a) per-channel overall RMS within +-0.5 dB; a near-silent source channel (below -60
     // dBFS, where a relative dB comparison is numerically unstable) just needs the decoded
     // channel to also be quiet (below -50 dBFS), not an exact match.
-    for (int c = 0; c < si.channels; ++c) {
-        double src_db = src.overall_db(c), out_db = mp3.overall_db(c);
+    for (int channel = 0; channel < source_info.channels; ++channel) {
+        double src_db = src.overall_db(channel), out_db = mp3.overall_db(channel);
         if (src_db < -60.0) {
             if (out_db >= -50.0) {
-                r.error = "audio content: channel " + to_string(c) + " decoded RMS " + db_str(out_db) +
+                result.error = "audio content: channel " + to_string(channel) + " decoded RMS " + db_str(out_db) +
                           " dBFS, expected below -50.00 dBFS (source is near-silent, " + db_str(src_db) + " dBFS)";
-                return r;
+                return result;
             }
         } else if (fabs(out_db - src_db) > 0.5) {
-            r.error = "audio content: channel " + to_string(c) + " RMS " + db_str(out_db) + " dBFS, expected " + db_str(src_db) +
+            result.error = "audio content: channel " + to_string(channel) + " RMS " + db_str(out_db) + " dBFS, expected " + db_str(src_db) +
                       " dBFS (±0.5 dB)";
-            return r;
+            return result;
         }
     }
 
@@ -272,29 +272,29 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // the first and last block are skipped.
     size_t blocks = std::min(src.num_blocks(), mp3.num_blocks());
     if (blocks >= 3) {
-        for (size_t k = 1; k + 1 < blocks; ++k) {
-            for (int c = 0; c < si.channels; ++c) {
-                double src_db = src.block_db(c, k);
+        for (size_t block = 1; block + 1 < blocks; ++block) {
+            for (int channel = 0; channel < source_info.channels; ++channel) {
+                double src_db = src.block_db(channel, block);
                 if (src_db <= -50.0) continue;
-                double out_db = mp3.block_db(c, k);
+                double out_db = mp3.block_db(channel, block);
                 if (fabs(out_db - src_db) > 1.0) {
-                    r.error = "audio content: 1 s block " + to_string(k) + " channel " + to_string(c) + " RMS " +
+                    result.error = "audio content: 1 s block " + to_string(block) + " channel " + to_string(channel) + " RMS " +
                               db_str(out_db) + " dBFS, expected " + db_str(src_db) + " dBFS (±1.0 dB)";
-                    return r;
+                    return result;
                 }
             }
         }
     }
-    return r;
+    return result;
 }
 
 }  // namespace
 
-ContentCheckResult verify_content(const fs::path& out, const EncodeSettings& s, const fs::path& source) {
-    if (s.format == Format::Flac) {
-        ContentCheckResult r;
-        r.error = verify_flac_content(out, source);
-        return r;
+ContentCheckResult verify_content(const fs::path& out, const EncodeSettings& settings, const fs::path& source) {
+    if (settings.format == Format::Flac) {
+        ContentCheckResult result;
+        result.error = verify_flac_content(out, source);
+        return result;
     }
     return verify_mp3_content(out, source);
 }

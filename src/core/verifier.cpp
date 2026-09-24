@@ -6,9 +6,9 @@
 
 namespace beatdown {
 
-string verify_mp3(const fs::path& out, const EncodeSettings& s, const AudioInfo& src) {
-    error_code ec;
-    if (!fs::exists(out, ec)) return "output missing";
+string verify_mp3(const fs::path& out, const EncodeSettings& settings, const AudioInfo& src) {
+    error_code fs_error;
+    if (!fs::exists(out, fs_error)) return "output missing";
     Mp3Info info;
     string err;
     if (!parse_mp3(out, info, err)) return "output is not a readable MP3: " + err;
@@ -22,12 +22,12 @@ string verify_mp3(const fs::path& out, const EncodeSettings& s, const AudioInfo&
     int expected_rate = mp3_output_rate(src.sample_rate);
     if (info.sample_rate != expected_rate)
         return "sample rate " + to_string(info.sample_rate) + " Hz, expected " + to_string(expected_rate);
-    if (s.vbr) {
+    if (settings.vbr) {
         if (!info.has_xing) return "VBR stream lacks a Xing header";
-    } else if (!info.cbr(s.bitrate)) {
+    } else if (!info.cbr(settings.bitrate)) {
         string seen;
-        for (int b : info.bitrates) seen += (seen.empty() ? "" : "/") + to_string(b);
-        return "bitrate " + seen + " kbps, expected CBR " + to_string(s.bitrate);
+        for (int bitrate : info.bitrates) seen += (seen.empty() ? "" : "/") + to_string(bitrate);
+        return "bitrate " + seen + " kbps, expected CBR " + to_string(settings.bitrate);
     }
     double want = src.seconds(), got = info.duration_seconds();
     if (fabs(want - got) > 1.0)
@@ -36,23 +36,23 @@ string verify_mp3(const fs::path& out, const EncodeSettings& s, const AudioInfo&
 }
 
 string verify_flac(const fs::path& out, const AudioInfo& src) {
-    error_code ec;
-    if (!fs::exists(out, ec)) return "output missing";
+    error_code fs_error;
+    if (!fs::exists(out, fs_error)) return "output missing";
     string err;
-    auto d = Decoder::open(out, err);
-    if (!d) return "output is not a readable FLAC: " + err;
-    const AudioInfo& o = d->info();
-    if (o.channels != src.channels)
-        return "channels " + to_string(o.channels) + ", expected " + to_string(src.channels);
-    if (o.sample_rate != src.sample_rate)
-        return "sample rate " + to_string(o.sample_rate) + ", expected " + to_string(src.sample_rate);
-    if (o.frames != src.frames)
-        return "frames " + to_string(o.frames) + ", expected " + to_string(src.frames);
+    auto decoder = Decoder::open(out, err);
+    if (!decoder) return "output is not a readable FLAC: " + err;
+    const AudioInfo& output_info = decoder->info();
+    if (output_info.channels != src.channels)
+        return "channels " + to_string(output_info.channels) + ", expected " + to_string(src.channels);
+    if (output_info.sample_rate != src.sample_rate)
+        return "sample rate " + to_string(output_info.sample_rate) + ", expected " + to_string(src.sample_rate);
+    if (output_info.frames != src.frames)
+        return "frames " + to_string(output_info.frames) + ", expected " + to_string(src.frames);
     return "";
 }
 
-string verify_output(const fs::path& out, const EncodeSettings& s, const AudioInfo& src) {
-    return s.format == Format::Flac ? verify_flac(out, src) : verify_mp3(out, s, src);
+string verify_output(const fs::path& out, const EncodeSettings& settings, const AudioInfo& src) {
+    return settings.format == Format::Flac ? verify_flac(out, src) : verify_mp3(out, settings, src);
 }
 
 }  // namespace beatdown

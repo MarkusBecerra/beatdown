@@ -24,14 +24,14 @@ void install_interrupt_handler(atomic<bool>& flag) {
 
 void console_utf8() {}
 
-SNDFILE* sf_open_path(const fs::path& p, int mode, SF_INFO* info) {
-    return sf_open(p.c_str(), mode, info);
+SNDFILE* sf_open_path(const fs::path& path, int mode, SF_INFO* info) {
+    return sf_open(path.c_str(), mode, info);
 }
 
-optional<FileId> file_id(const fs::path& p) {
-    struct stat st{};
-    if (stat(p.c_str(), &st) != 0) return nullopt;
-    return FileId{static_cast<uint64_t>(st.st_dev), static_cast<uint64_t>(st.st_ino)};
+optional<FileId> file_id(const fs::path& path) {
+    struct stat file_stat{};
+    if (stat(path.c_str(), &file_stat) != 0) return nullopt;
+    return FileId{static_cast<uint64_t>(file_stat.st_dev), static_cast<uint64_t>(file_stat.st_ino)};
 }
 
 }  // namespace beatdown::platform

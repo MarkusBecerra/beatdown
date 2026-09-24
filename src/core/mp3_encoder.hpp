@@ -9,7 +9,7 @@ int mp3_output_rate(int source_rate);
 
 class LameEncoder : public Encoder {
 public:
-    explicit LameEncoder(EncodeSettings s) : settings_(s) {}
+    explicit LameEncoder(EncodeSettings settings) : settings_(settings) {}
     string encode(Decoder& in, const fs::path& out, const Tags& tags,
                   const atomic<bool>& cancel, string* verbose_log) override;
 
