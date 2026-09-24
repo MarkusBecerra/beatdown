@@ -9,12 +9,12 @@ jobs:
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: true }
       - name: Create vcpkg binary cache directory
         run: cmake -E make_directory .vcpkg-cache
       - name: Cache vcpkg packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-${{ runner.os }}-default-${{ hashFiles('vcpkg.json') }}
@@ -24,7 +24,7 @@ jobs:
       - run: ./external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset default -DBEATDOWN_BUILD_TESTS=OFF && cmake --build --preset default
       - run: tar -C build/default -czf beatdown-${{ github.ref_name }}-linux-x86_64.tar.gz beatdown
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: linux, path: "*.tar.gz" }
 
   macos:
@@ -32,12 +32,12 @@ jobs:
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: true }
       - name: Create vcpkg binary cache directory
         run: cmake -E make_directory .vcpkg-cache
       - name: Cache vcpkg packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-${{ runner.os }}-macos-universal-${{ hashFiles('vcpkg.json') }}
@@ -51,7 +51,7 @@ jobs:
           lipo -create build/macos-arm64/beatdown build/macos-x64/beatdown -output beatdown
           lipo -info beatdown
           tar -czf beatdown-${{ github.ref_name }}-macos-universal.tar.gz beatdown
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: macos, path: "*.tar.gz" }
 
   windows:
@@ -59,22 +59,22 @@ jobs:
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: true }
       - name: Create vcpkg binary cache directory
         run: cmake -E make_directory .vcpkg-cache
       - name: Cache vcpkg packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-${{ runner.os }}-default-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-default-
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: ./.github/actions/msvc-env
       - run: .\external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - run: cmake --preset default -DBEATDOWN_BUILD_TESTS=OFF && cmake --build --preset default
       - run: Compress-Archive -Path build\default\beatdown.exe -DestinationPath beatdown-${{ github.ref_name }}-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: windows, path: "*.zip" }
 
   publish:
@@ -82,9 +82,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { merge-multiple: true }
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             *.tar.gz
