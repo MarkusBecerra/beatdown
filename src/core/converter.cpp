@@ -38,17 +38,17 @@ FileResult convert_one(const Job& job, const Options& options, const atomic<bool
     FileResult result;
     result.job = job;
     auto start_time = chrono::steady_clock::now();
-    auto done = [&](Outcome outcome, string err = "") {
+    auto done = [&](Outcome outcome, string error_message = "") {
         result.outcome = outcome;
-        result.error = std::move(err);
+        result.error = std::move(error_message);
         result.elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start_time);
         return result;
     };
     if (cancel.load()) return done(Outcome::Cancelled);
 
-    string err;
-    auto decoder = Decoder::open(job.source, err);
-    if (!decoder) return done(Outcome::Failed, err);
+    string error_message;
+    auto decoder = Decoder::open(job.source, error_message);
+    if (!decoder) return done(Outcome::Failed, error_message);
     // Task 18 fix round 2: a source already coded as MP3 (however it's named -- an MP3 renamed
     // to .wav still decodes as MPEG) is refused outright rather than re-encoded, for either
     // output format: re-encoding lossy audio compounds its losses for no benefit.

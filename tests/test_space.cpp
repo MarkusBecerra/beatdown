@@ -30,9 +30,9 @@ TEST_CASE("check_space applies a 10% margin") {
 
 TEST_CASE("available_bytes reports space for a real directory and errors for a missing one") {
     TempDir temp_dir;
-    string err;
-    REQUIRE(available_bytes(temp_dir.path, err) > 0);
-    REQUIRE(err.empty());
-    available_bytes(temp_dir.path / "nope", err);
-    REQUIRE_FALSE(err.empty());
+    string error_message;
+    REQUIRE(available_bytes(temp_dir.path, error_message) > 0);
+    REQUIRE(error_message.empty());
+    available_bytes(temp_dir.path / "nope", error_message);
+    REQUIRE_FALSE(error_message.empty());
 }

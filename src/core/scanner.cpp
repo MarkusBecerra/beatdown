@@ -66,9 +66,9 @@ string overwrites_a_source(const fs::path& output, const unordered_set<platform:
     if (fallback_by_parent.empty()) return "";   // every source's id is in source_ids; no match there
 
     fs::path parent = fs::weakly_canonical(output.parent_path(), fs_error);
-    auto it = fallback_by_parent.find(path_to_utf8(parent));
-    if (it == fallback_by_parent.end()) return "";
-    for (const fs::path& candidate : it->second) {
+    auto parent_entry = fallback_by_parent.find(path_to_utf8(parent));
+    if (parent_entry == fallback_by_parent.end()) return "";
+    for (const fs::path& candidate : parent_entry->second) {
         bool equivalent = fs::equivalent(candidate, output, fs_error);
         if (equivalent || fs_error) return "output would overwrite a source file";
     }
@@ -118,8 +118,8 @@ void decide(vector<Job>& jobs, const Options& options, Plan& plan) {
             job.note = "output would overwrite a source file";
         else if (string overwrite_note = overwrites_a_source(job.output, source_ids, fallback_by_parent); !overwrite_note.empty())
             job.note = overwrite_note;
-        else if (auto [it, fresh] = claimed.emplace(output_key, path_to_utf8(job.source.filename())); !fresh)
-            job.note = "same output as " + it->second;
+        else if (auto [claimed_entry, fresh] = claimed.emplace(output_key, path_to_utf8(job.source.filename())); !fresh)
+            job.note = "same output as " + claimed_entry->second;
         else if (!options.overwrite && fs::exists(job.output, fs_error))
             job.note = "output exists";
         (job.note.empty() ? plan.to_convert : plan.skipped).push_back(std::move(job));
@@ -142,10 +142,10 @@ Plan scan(const Options& options, string& error) {
             collect(entry.path(), fs::relative(entry.path().parent_path(), options.source, fs_error), options, jobs, plan.ignored);
         };
         if (options.recursive) {
-            fs::recursive_directory_iterator it(options.source, fs::directory_options::skip_permission_denied, fs_error), end;
-            for (; it != end; it.increment(fs_error)) {
-                if (it->is_directory(fs_error) && fs::weakly_canonical(it->path(), fs_error) == dest_canon) { it.disable_recursion_pending(); continue; }
-                visit(*it);
+            fs::recursive_directory_iterator iterator(options.source, fs::directory_options::skip_permission_denied, fs_error), end;
+            for (; iterator != end; iterator.increment(fs_error)) {
+                if (iterator->is_directory(fs_error) && fs::weakly_canonical(iterator->path(), fs_error) == dest_canon) { iterator.disable_recursion_pending(); continue; }
+                visit(*iterator);
             }
         } else {
             for (const auto& entry : fs::directory_iterator(options.source, fs::directory_options::skip_permission_denied, fs_error)) visit(entry);

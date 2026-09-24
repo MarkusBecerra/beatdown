@@ -58,8 +58,8 @@ TEST_CASE("read_wav_id3_chunk finds an id3 chunk appended to a WAV") {
     REQUIRE(got.title == "Café Track");
     REQUIRE(read_wav_id3_chunk(file).empty());
 
-    string err;
-    auto decoder = Decoder::open(temp_dir.path / "b.wav", err);
+    string error_message;
+    auto decoder = Decoder::open(temp_dir.path / "b.wav", error_message);
     REQUIRE(decoder);
     REQUIRE(decoder->tags().artist == "Artist");
 }

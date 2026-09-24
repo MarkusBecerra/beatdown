@@ -17,19 +17,19 @@ double linear_to_db(double linear) { return 20.0 * log10(linear); }
 
 string db_str(double db) {
     if (!isfinite(db)) return db < 0 ? "-inf" : "inf";
-    char buf[32];
-    snprintf(buf, sizeof buf, "%.2f", db);
-    return buf;
+    char formatted[32];
+    snprintf(formatted, sizeof formatted, "%.2f", db);
+    return formatted;
 }
 
 // --- FLAC: full frame-by-frame comparison, at whatever precision the source format calls for ---
 
 string verify_flac_content(const fs::path& out, const fs::path& source) {
-    string err;
-    auto source_decoder = Decoder::open(source, err);
-    if (!source_decoder) return "audio content: cannot reopen source: " + err;
-    auto output_decoder = Decoder::open(out, err);
-    if (!output_decoder) return "audio content: cannot open output: " + err;
+    string error_message;
+    auto source_decoder = Decoder::open(source, error_message);
+    if (!source_decoder) return "audio content: cannot reopen source: " + error_message;
+    auto output_decoder = Decoder::open(out, error_message);
+    if (!output_decoder) return "audio content: cannot open output: " + error_message;
 
     const AudioInfo& source_info = source_decoder->info();
     const AudioInfo& output_info = output_decoder->info();
@@ -197,23 +197,23 @@ struct SideStats {
 void accumulate(Decoder& decoder, SideStats& stats, double lowpass_fc) {
     stats.init(decoder.info().channels, decoder.info().sample_rate, lowpass_fc);
     const int64_t kFrames = 4096;
-    vector<float> buf(static_cast<size_t>(kFrames) * stats.channels);
+    vector<float> samples(static_cast<size_t>(kFrames) * stats.channels);
     int64_t frames_read;
-    while ((frames_read = decoder.read_float(buf.data(), kFrames)) > 0)
-        for (int64_t frame = 0; frame < frames_read; ++frame) stats.add_frame(&buf[static_cast<size_t>(frame) * stats.channels]);
+    while ((frames_read = decoder.read_float(samples.data(), kFrames)) > 0)
+        for (int64_t frame = 0; frame < frames_read; ++frame) stats.add_frame(&samples[static_cast<size_t>(frame) * stats.channels]);
 }
 
 ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& source) {
     ContentCheckResult result;
-    string err;
-    auto source_decoder = Decoder::open(source, err);
+    string error_message;
+    auto source_decoder = Decoder::open(source, error_message);
     if (!source_decoder) {
-        result.error = "audio content: cannot reopen source: " + err;
+        result.error = "audio content: cannot reopen source: " + error_message;
         return result;
     }
-    auto output_decoder = Decoder::open(out, err);
+    auto output_decoder = Decoder::open(out, error_message);
     if (!output_decoder) {
-        result.error = "audio content: cannot open output: " + err;
+        result.error = "audio content: cannot open output: " + error_message;
         return result;
     }
 
@@ -231,8 +231,8 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // as a pure safety net that a correctly computed shared cutoff should never actually hit.
     double lowpass_fc = std::min(16000.0, 0.4 * std::min(source_info.sample_rate, output_info.sample_rate));
 
-    SideStats src, mp3;
-    accumulate(*source_decoder, src, lowpass_fc);
+    SideStats source_stats, mp3;
+    accumulate(*source_decoder, source_stats, lowpass_fc);
     accumulate(*output_decoder, mp3, lowpass_fc);
     result.peak_dbfs = linear_to_db(mp3.peak);
 
@@ -241,8 +241,8 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // exactly at an unchanged rate, else land within +-2 frames of
     // round(source_frames_read * out_rate / in_rate).
     bool same_rate = output_info.sample_rate == source_info.sample_rate;
-    int64_t expected = same_rate ? src.total_frames
-                                  : llround(static_cast<double>(src.total_frames) * output_info.sample_rate / source_info.sample_rate);
+    int64_t expected = same_rate ? source_stats.total_frames
+                                  : llround(static_cast<double>(source_stats.total_frames) * output_info.sample_rate / source_info.sample_rate);
     int64_t diff = std::llabs(mp3.total_frames - expected);
     if (same_rate ? (diff != 0) : (diff > 2)) {
         result.error = "audio content: length " + to_string(mp3.total_frames) + " frames, expected " + to_string(expected) +
@@ -254,7 +254,7 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
     // dBFS, where a relative dB comparison is numerically unstable) just needs the decoded
     // channel to also be quiet (below -50 dBFS), not an exact match.
     for (int channel = 0; channel < source_info.channels; ++channel) {
-        double src_db = src.overall_db(channel), out_db = mp3.overall_db(channel);
+        double src_db = source_stats.overall_db(channel), out_db = mp3.overall_db(channel);
         if (src_db < -60.0) {
             if (out_db >= -50.0) {
                 result.error = "audio content: channel " + to_string(channel) + " decoded RMS " + db_str(out_db) +
@@ -270,11 +270,11 @@ ContentCheckResult verify_mp3_content(const fs::path& out, const fs::path& sourc
 
     // (b) every aligned 1 s block whose source RMS is above -50 dBFS matches within +-1.0 dB;
     // the first and last block are skipped.
-    size_t blocks = std::min(src.num_blocks(), mp3.num_blocks());
+    size_t blocks = std::min(source_stats.num_blocks(), mp3.num_blocks());
     if (blocks >= 3) {
         for (size_t block = 1; block + 1 < blocks; ++block) {
             for (int channel = 0; channel < source_info.channels; ++channel) {
-                double src_db = src.block_db(channel, block);
+                double src_db = source_stats.block_db(channel, block);
                 if (src_db <= -50.0) continue;
                 double out_db = mp3.block_db(channel, block);
                 if (fabs(out_db - src_db) > 1.0) {

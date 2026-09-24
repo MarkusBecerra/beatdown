@@ -26,7 +26,7 @@ struct RecordingReporter : Reporter {
     void error(const string& message) override { errors.push_back(message); }
 };
 
-static Options make_options(const fs::path& src, const fs::path& destination) { Options options; options.source = src; options.destination = destination; options.jobs = 2; return options; }
+static Options make_options(const fs::path& source, const fs::path& destination) { Options options; options.source = source; options.destination = destination; options.jobs = 2; return options; }
 
 // Finding 2 (fix round 1): restores the previous current directory even if a REQUIRE fails and
 // unwinds the test case (Catch2 aborts a failed test via a normal C++ exception, so this
@@ -210,8 +210,8 @@ TEST_CASE("run converts one of two sources that share an output and reports the 
     REQUIRE(reporter.last.failed == 0);
     REQUIRE(reporter.skips.size() == 1);
     REQUIRE(reporter.skips[0].note == "same output as track.aiff");
-    Mp3Info info; string err;
-    REQUIRE(parse_mp3(temp_dir.path / "out/track.mp3", info, err));
+    Mp3Info info; string error_message;
+    REQUIRE(parse_mp3(temp_dir.path / "out/track.mp3", info, error_message));
     REQUIRE(info.duration_seconds() == Catch::Approx(1.0).margin(0.2));
     vector<string> names;
     for (const auto& entry : fs::directory_iterator(temp_dir.path / "out")) names.push_back(entry.path().filename().string());
@@ -251,10 +251,10 @@ TEST_CASE("run never lets an output overwrite a source file reached under a diff
         fs::path wav_source = temp_dir.path / "src" / path_from_utf8(spelling_pair.wav);
         error_code fs_error;
         if (fs::equivalent(wav_output, flac_path, fs_error)) {
-            auto it = find_if(reporter.skips.begin(), reporter.skips.end(),
+            auto found_job = find_if(reporter.skips.begin(), reporter.skips.end(),
                                     [&](const Job& job) { return job.source == wav_source; });
-            REQUIRE(it != reporter.skips.end());
-            REQUIRE(it->note == "output would overwrite a source file");
+            REQUIRE(found_job != reporter.skips.end());
+            REQUIRE(found_job->note == "output would overwrite a source file");
         }
     }
 }
@@ -289,10 +289,10 @@ TEST_CASE("run's overwrite check still finds a filesystem-equal name among diffe
     fs::path wav_output = temp_dir.path / "src" / path_from_utf8("Caf\xC3\xA9.flac");
     error_code fs_error;
     if (fs::equivalent(wav_output, flac_path, fs_error)) {
-        auto it = find_if(reporter.skips.begin(), reporter.skips.end(),
+        auto found_job = find_if(reporter.skips.begin(), reporter.skips.end(),
                                 [&](const Job& job) { return job.source == wav_source; });
-        REQUIRE(it != reporter.skips.end());
-        REQUIRE(it->note == "output would overwrite a source file");
+        REQUIRE(found_job != reporter.skips.end());
+        REQUIRE(found_job->note == "output would overwrite a source file");
     }
 }
 
@@ -377,9 +377,9 @@ TEST_CASE("run at high concurrency (--jobs 8) matches single-threaded per-file d
     for (auto& result : concurrent_reporter.files) {
         REQUIRE(result.outcome == Outcome::Converted);
         REQUIRE(result.peak_dbfs.has_value());
-        auto it = single_threaded_peak.find(path_to_utf8(result.job.source.filename()));
-        REQUIRE(it != single_threaded_peak.end());
-        REQUIRE(*result.peak_dbfs == Catch::Approx(it->second).margin(0.01));
+        auto found_peak = single_threaded_peak.find(path_to_utf8(result.job.source.filename()));
+        REQUIRE(found_peak != single_threaded_peak.end());
+        REQUIRE(*result.peak_dbfs == Catch::Approx(found_peak->second).margin(0.01));
         ++compared;
     }
     REQUIRE(compared == file_count);

@@ -18,9 +18,9 @@ using Catch::Matchers::ContainsSubstring;
 namespace {
 constexpr double kPi = 3.14159265358979323846;
 
-void encode_to(const fs::path& src, const fs::path& out, EncodeSettings settings) {
-    string err;
-    auto decoder = Decoder::open(src, err);
+void encode_to(const fs::path& source, const fs::path& out, EncodeSettings settings) {
+    string error_message;
+    auto decoder = Decoder::open(source, error_message);
     REQUIRE(decoder);
     atomic<bool> cancel{false};
     REQUIRE(make_encoder(settings)->encode(*decoder, out, {}, cancel, nullptr) == "");
@@ -35,9 +35,9 @@ fs::path write_signal(const fs::path& file, int rate, const vector<double>& mono
     info.format = SF_FORMAT_WAV | SF_FORMAT_PCM_24;
     SNDFILE* sndfile = beatdown::platform::sf_open_path(file, SFM_WRITE, &info);
     if (!sndfile) throw runtime_error("write_signal: open failed");
-    vector<float> buf(mono.size() * 2);
-    for (size_t index = 0; index < mono.size(); ++index) buf[index * 2] = buf[index * 2 + 1] = static_cast<float>(mono[index]);
-    sf_writef_float(sndfile, buf.data(), static_cast<sf_count_t>(mono.size()));
+    vector<float> buffer(mono.size() * 2);
+    for (size_t index = 0; index < mono.size(); ++index) buffer[index * 2] = buffer[index * 2 + 1] = static_cast<float>(mono[index]);
+    sf_writef_float(sndfile, buffer.data(), static_cast<sf_count_t>(mono.size()));
     sf_close(sndfile);
     return file;
 }
@@ -151,10 +151,10 @@ vector<double> gen_kick(int rate, double seconds, double peak_db, double tau) {
 
 TEST_CASE("verify_content passes a good MP3 encode") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, source).error == "");
 }
 
 TEST_CASE("verify_content passes a good FLAC encode (24-bit, 16-bit, float32 and int32 sources)") {
@@ -162,10 +162,10 @@ TEST_CASE("verify_content passes a good FLAC encode (24-bit, 16-bit, float32 and
     EncodeSettings settings;
     settings.format = Format::Flac;
     for (int subtype : {SF_FORMAT_PCM_24, SF_FORMAT_PCM_16, SF_FORMAT_FLOAT, SF_FORMAT_PCM_32}) {
-        auto src = make_audio(temp_dir.path / (to_string(subtype) + ".wav"), {.subtype = subtype, .seconds = 0.5});
+        auto source = make_audio(temp_dir.path / (to_string(subtype) + ".wav"), {.subtype = subtype, .seconds = 0.5});
         auto out = temp_dir.path / (to_string(subtype) + ".flac");
-        encode_to(src, out, settings);
-        REQUIRE(verify_content(out, settings, src).error == "");
+        encode_to(source, out, settings);
+        REQUIRE(verify_content(out, settings, source).error == "");
     }
 }
 
@@ -201,26 +201,26 @@ TEST_CASE("verify_content fails a FLAC of a different signal checked against the
 
 TEST_CASE("verify_content passes a 96 kHz source encoded to MP3") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.rate = 96000, .seconds = 2.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.rate = 96000, .seconds = 2.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, source).error == "");
 }
 
 TEST_CASE("verify_content passes a 22.05 kHz source encoded to MP3") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.rate = 22050, .seconds = 2.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.rate = 22050, .seconds = 2.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, source).error == "");
 }
 
 TEST_CASE("verify_content passes a mono source encoded to MP3") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.channels = 1, .seconds = 2.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.channels = 1, .seconds = 2.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, source).error == "");
 }
 
 // R-G (self-review addition): check (a)'s near-silent branch (source channel RMS below -60
@@ -229,20 +229,20 @@ TEST_CASE("verify_content passes a mono source encoded to MP3") {
 // cheap to cover since the branch is otherwise untested by any listed case.
 TEST_CASE("verify_content allows a near-silent source channel to decode below -50 dBFS instead of matching exactly") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0, .amplitude = amp_for_dbfs(-70.0)});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0, .amplitude = amp_for_dbfs(-70.0)});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "a.mp3", settings, source).error == "");
 }
 
 // --- Fix round 1 additions ---
 
 TEST_CASE("verify_content reports the decoded peak of a -20 dBFS 1 kHz sine within 0.3 dB") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 1.0, .amplitude = amp_for_dbfs(-20.0), .freq_hz = 1000.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 1.0, .amplitude = amp_for_dbfs(-20.0), .freq_hz = 1000.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
-    auto result = verify_content(temp_dir.path / "a.mp3", settings, src);
+    encode_to(source, temp_dir.path / "a.mp3", settings);
+    auto result = verify_content(temp_dir.path / "a.mp3", settings, source);
     REQUIRE(result.error == "");
     REQUIRE(result.peak_dbfs.has_value());
     REQUIRE(*result.peak_dbfs == Catch::Approx(-20.0).margin(0.3));
@@ -250,57 +250,57 @@ TEST_CASE("verify_content reports the decoded peak of a -20 dBFS 1 kHz sine with
 
 TEST_CASE("verify_content reports a decoded peak above 0 dBFS for a hot, hard-clipped square-ish wave") {
     TempDir temp_dir;
-    auto src = make_clipped_wave(temp_dir.path / "hot.wav");
+    auto source = make_clipped_wave(temp_dir.path / "hot.wav");
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "hot.mp3", settings);
-    auto result = verify_content(temp_dir.path / "hot.mp3", settings, src);
+    encode_to(source, temp_dir.path / "hot.mp3", settings);
+    auto result = verify_content(temp_dir.path / "hot.mp3", settings, source);
     REQUIRE(result.peak_dbfs.has_value());
     REQUIRE(*result.peak_dbfs > 0.0);
 }
 
 TEST_CASE("verify_content reports no decoded peak for FLAC") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 0.2});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 0.2});
     EncodeSettings settings;
     settings.format = Format::Flac;
-    encode_to(src, temp_dir.path / "a.flac", settings);
-    auto result = verify_content(temp_dir.path / "a.flac", settings, src);
+    encode_to(source, temp_dir.path / "a.flac", settings);
+    auto result = verify_content(temp_dir.path / "a.flac", settings, source);
     REQUIRE(result.error == "");
     REQUIRE_FALSE(result.peak_dbfs.has_value());
 }
 
 TEST_CASE("verify_content passes a float +3 dBFS sine encoded to both formats") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "hot.wav", {.subtype = SF_FORMAT_FLOAT, .seconds = 1.0, .amplitude = amp_for_dbfs(3.0)});
+    auto source = make_audio(temp_dir.path / "hot.wav", {.subtype = SF_FORMAT_FLOAT, .seconds = 1.0, .amplitude = amp_for_dbfs(3.0)});
 
     EncodeSettings mp3s;
-    encode_to(src, temp_dir.path / "hot.mp3", mp3s);
-    REQUIRE(verify_content(temp_dir.path / "hot.mp3", mp3s, src).error == "");
+    encode_to(source, temp_dir.path / "hot.mp3", mp3s);
+    REQUIRE(verify_content(temp_dir.path / "hot.mp3", mp3s, source).error == "");
 
     EncodeSettings flacs;
     flacs.format = Format::Flac;
-    encode_to(src, temp_dir.path / "hot.flac", flacs);
-    REQUIRE(verify_content(temp_dir.path / "hot.flac", flacs, src).error == "");
+    encode_to(source, temp_dir.path / "hot.flac", flacs);
+    REQUIRE(verify_content(temp_dir.path / "hot.flac", flacs, source).error == "");
 }
 
 TEST_CASE("verify_content fails a truncated MP3 with a length mismatch") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 3.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 3.0});
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "a.mp3", settings);
+    encode_to(source, temp_dir.path / "a.mp3", settings);
     string data = read_file(temp_dir.path / "a.mp3");
     write_bytes(temp_dir.path / "cut.mp3", data.substr(0, data.size() * 2 / 3));
-    auto result = verify_content(temp_dir.path / "cut.mp3", settings, src);
+    auto result = verify_content(temp_dir.path / "cut.mp3", settings, source);
     REQUIRE_THAT(result.error, ContainsSubstring("audio content"));
     REQUIRE_THAT(result.error, ContainsSubstring("length"));
 }
 
 TEST_CASE("verify_content passes a decaying 0.1 s one-shot") {
     TempDir temp_dir;
-    auto src = write_signal(temp_dir.path / "kick.wav", 48000, gen_kick(48000, 0.1, -1.0, 0.03));
+    auto source = write_signal(temp_dir.path / "kick.wav", 48000, gen_kick(48000, 0.1, -1.0, 0.03));
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "kick.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "kick.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "kick.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "kick.mp3", settings, source).error == "");
 }
 
 // Round-1 review, Important 2: full-band RMS (without a shared lowpass) rejected legitimate
@@ -308,26 +308,26 @@ TEST_CASE("verify_content passes a decaying 0.1 s one-shot") {
 // the full-band RMS still counted. These three reproduce the reviewer's probe categories.
 TEST_CASE("verify_content passes 48 kHz white noise") {
     TempDir temp_dir;
-    auto src = write_signal(temp_dir.path / "white.wav", 48000, gen_white(48000, 3.0, -20.0));
+    auto source = write_signal(temp_dir.path / "white.wav", 48000, gen_white(48000, 3.0, -20.0));
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "white.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "white.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "white.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "white.mp3", settings, source).error == "");
 }
 
 TEST_CASE("verify_content passes a source with a high-passed riser block") {
     TempDir temp_dir;
-    auto src = write_signal(temp_dir.path / "riser.wav", 48000, gen_riser_block(48000, 6.0, -10.0, -20.0, 10000.0, 2.0, 2.0));
+    auto source = write_signal(temp_dir.path / "riser.wav", 48000, gen_riser_block(48000, 6.0, -10.0, -20.0, 10000.0, 2.0, 2.0));
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "riser.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "riser.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "riser.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "riser.mp3", settings, source).error == "");
 }
 
 TEST_CASE("verify_content passes a -48 dBFS high-passed hat intro followed by louder content") {
     TempDir temp_dir;
-    auto src = write_signal(temp_dir.path / "intro.wav", 48000, gen_hp_intro(48000, 4.0, 8.0, -48.0, 8000.0, -10.0));
+    auto source = write_signal(temp_dir.path / "intro.wav", 48000, gen_hp_intro(48000, 4.0, 8.0, -48.0, 8000.0, -10.0));
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "intro.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "intro.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "intro.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "intro.mp3", settings, source).error == "");
 }
 
 // Task 18 fix round 2, item 7: a shared analysis lowpass cutoff (min(16 kHz, 0.4x the lower of
@@ -335,8 +335,8 @@ TEST_CASE("verify_content passes a -48 dBFS high-passed hat intro followed by lo
 // completely unfiltered on one side while the other gets the full 16 kHz lowpass.
 TEST_CASE("verify_content passes bright 32 kHz white noise") {
     TempDir temp_dir;
-    auto src = write_signal(temp_dir.path / "white32.wav", 32000, gen_white(32000, 3.0, -20.0));
+    auto source = write_signal(temp_dir.path / "white32.wav", 32000, gen_white(32000, 3.0, -20.0));
     EncodeSettings settings;
-    encode_to(src, temp_dir.path / "white32.mp3", settings);
-    REQUIRE(verify_content(temp_dir.path / "white32.mp3", settings, src).error == "");
+    encode_to(source, temp_dir.path / "white32.mp3", settings);
+    REQUIRE(verify_content(temp_dir.path / "white32.mp3", settings, source).error == "");
 }

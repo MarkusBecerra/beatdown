@@ -8,10 +8,10 @@
 namespace beatdown {
 
 namespace {
-int64_t read_frames(Decoder& in, int32_t* buf, int64_t frames) { return in.read_int(buf, frames); }
-int64_t read_frames(Decoder& in, float* buf, int64_t frames) { return in.read_float(buf, frames); }
-sf_count_t write_frames(SNDFILE* sndfile, const int32_t* buf, sf_count_t frames) { return sf_writef_int(sndfile, buf, frames); }
-sf_count_t write_frames(SNDFILE* sndfile, const float* buf, sf_count_t frames) { return sf_writef_float(sndfile, buf, frames); }
+int64_t read_frames(Decoder& in, int32_t* buffer, int64_t frames) { return in.read_int(buffer, frames); }
+int64_t read_frames(Decoder& in, float* buffer, int64_t frames) { return in.read_float(buffer, frames); }
+sf_count_t write_frames(SNDFILE* sndfile, const int32_t* buffer, sf_count_t frames) { return sf_writef_int(sndfile, buffer, frames); }
+sf_count_t write_frames(SNDFILE* sndfile, const float* buffer, sf_count_t frames) { return sf_writef_float(sndfile, buffer, frames); }
 
 // Copies every frame of `in` into `sndfile` as `Sample`. int32_t keeps integer PCM exact (16/24-bit
 // bit-exact, 32-bit truncated to 24); float sources must go through float, because libsndfile
@@ -19,11 +19,11 @@ sf_count_t write_frames(SNDFILE* sndfile, const float* buf, sf_count_t frames) {
 template <typename Sample>
 string copy_frames(Decoder& in, SNDFILE* sndfile, const atomic<bool>& cancel) {
     const int64_t kFrames = 4096;
-    vector<Sample> buf(static_cast<size_t>(kFrames) * in.info().channels);
+    vector<Sample> buffer(static_cast<size_t>(kFrames) * in.info().channels);
     int64_t frames_read;
-    while ((frames_read = read_frames(in, buf.data(), kFrames)) > 0) {
+    while ((frames_read = read_frames(in, buffer.data(), kFrames)) > 0) {
         if (cancel.load()) return "cancelled";
-        if (write_frames(sndfile, buf.data(), frames_read) != frames_read) return string("FLAC write failed: ") + sf_strerror(sndfile);
+        if (write_frames(sndfile, buffer.data(), frames_read) != frames_read) return string("FLAC write failed: ") + sf_strerror(sndfile);
     }
     return "";
 }

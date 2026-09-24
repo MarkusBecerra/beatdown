@@ -8,9 +8,9 @@
 
 namespace beatdown {
 
-static string one_decimal(double value) { char buf[32]; snprintf(buf, sizeof buf, "%.1f", value); return buf; }
+static string one_decimal(double value) { char formatted[32]; snprintf(formatted, sizeof formatted, "%.1f", value); return formatted; }
 // Task 18: sign always shown, two decimals -- e.g. "+0.48", "-0.32".
-static string peak_str(double db) { char buf[32]; snprintf(buf, sizeof buf, "%+.2f", db); return buf; }
+static string peak_str(double db) { char formatted[32]; snprintf(formatted, sizeof formatted, "%+.2f", db); return formatted; }
 
 // Finding 1 (fix round 1): the failure recap in summary() shows a path relative to the source
 // root (set by plan()) instead of a bare filename, since a 500-file batch can have several
@@ -35,7 +35,7 @@ string format_size(int64_t bytes) {
 string format_secs(chrono::milliseconds ms) { return one_decimal(ms.count() / 1000.0) + "s"; }
 string format_clock(chrono::milliseconds ms) {
     long long total_seconds = ms.count() / 1000;
-    char buf[32]; snprintf(buf, sizeof buf, "%lld:%02lld", total_seconds / 60, total_seconds % 60); return buf;
+    char formatted[32]; snprintf(formatted, sizeof formatted, "%lld:%02lld", total_seconds / 60, total_seconds % 60); return formatted;
 }
 
 static mutex g_out;

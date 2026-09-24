@@ -13,16 +13,16 @@
 using namespace beatdown;
 using Catch::Matchers::ContainsSubstring;
 
-static Mp3Info encode_and_parse(const fs::path& src, const fs::path& out, EncodeSettings settings = {}, Tags tags = {}) {
-    string err;
-    auto decoder = Decoder::open(src, err);
+static Mp3Info encode_and_parse(const fs::path& source, const fs::path& out, EncodeSettings settings = {}, Tags tags = {}) {
+    string error_message;
+    auto decoder = Decoder::open(source, error_message);
     REQUIRE(decoder);
     atomic<bool> cancel{false};
     auto encoder = make_encoder(settings);
     string log;
     REQUIRE(encoder->encode(*decoder, out, tags, cancel, &log) == "");
     Mp3Info info;
-    REQUIRE(parse_mp3(out, info, err));
+    REQUIRE(parse_mp3(out, info, error_message));
     return info;
 }
 
@@ -39,20 +39,20 @@ TEST_CASE("mp3_output_rate keeps 44.1/48 kHz and maps lower rates to 44.1 and hi
 // file would only fail verification after a full encode.
 TEST_CASE("LameEncoder encodes a 22.05 kHz source as CBR 320 at 44.1 kHz and it verifies") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "22k.wav", {.rate = 22050, .seconds = 1.0});
-    Mp3Info info = encode_and_parse(src, temp_dir.path / "22k.mp3");
+    auto source = make_audio(temp_dir.path / "22k.wav", {.rate = 22050, .seconds = 1.0});
+    Mp3Info info = encode_and_parse(source, temp_dir.path / "22k.mp3");
     REQUIRE(info.sample_rate == 44100);
     REQUIRE(info.cbr(320));
-    string err;
-    auto decoder = Decoder::open(src, err);
+    string error_message;
+    auto decoder = Decoder::open(source, error_message);
     REQUIRE(decoder);
     REQUIRE(verify_mp3(temp_dir.path / "22k.mp3", EncodeSettings{}, decoder->info()) == "");
 }
 
 TEST_CASE("LameEncoder refuses a CBR bitrate LAME would change and writes nothing") {
     TempDir temp_dir;
-    string err;
-    auto decoder = Decoder::open(make_audio(temp_dir.path / "a.wav", {.seconds = 0.2}), err);
+    string error_message;
+    auto decoder = Decoder::open(make_audio(temp_dir.path / "a.wav", {.seconds = 0.2}), error_message);
     REQUIRE(decoder);
     atomic<bool> cancel{false};
     EncodeSettings settings; settings.bitrate = 8;   // an MPEG-2 rate: MPEG-1 at 48 kHz starts at 32 kbps
@@ -62,8 +62,8 @@ TEST_CASE("LameEncoder refuses a CBR bitrate LAME would change and writes nothin
 
 TEST_CASE("LameEncoder writes CBR 320 at 48 kHz with the source duration") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.rate = 48000, .seconds = 2.0});
-    Mp3Info info = encode_and_parse(src, temp_dir.path / "a.mp3");
+    auto source = make_audio(temp_dir.path / "a.wav", {.rate = 48000, .seconds = 2.0});
+    Mp3Info info = encode_and_parse(source, temp_dir.path / "a.mp3");
     REQUIRE(info.cbr(320));
     REQUIRE(info.sample_rate == 48000);
     REQUIRE(info.channels == 2);
@@ -89,11 +89,11 @@ TEST_CASE("LameEncoder converts 8 kHz and 12 kHz 1-second sources") {
 
 TEST_CASE("LameEncoder honours --bitrate and --vbr") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0});
+    auto source = make_audio(temp_dir.path / "a.wav", {.seconds = 2.0});
     EncodeSettings settings; settings.bitrate = 192;
-    REQUIRE(encode_and_parse(src, temp_dir.path / "192.mp3", settings).cbr(192));
+    REQUIRE(encode_and_parse(source, temp_dir.path / "192.mp3", settings).cbr(192));
     EncodeSettings vbr_settings; vbr_settings.vbr = 0;
-    Mp3Info info = encode_and_parse(src, temp_dir.path / "v0.mp3", vbr_settings);
+    Mp3Info info = encode_and_parse(source, temp_dir.path / "v0.mp3", vbr_settings);
     REQUIRE(info.has_xing);
     REQUIRE(info.audio_frames > 0);
 }
@@ -126,9 +126,9 @@ TEST_CASE("LameEncoder writes no tag block when there are no tags") {
 
 TEST_CASE("LameEncoder stops when cancelled") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "long.wav", {.seconds = 30.0});
-    string err;
-    auto decoder = Decoder::open(src, err);
+    auto source = make_audio(temp_dir.path / "long.wav", {.seconds = 30.0});
+    string error_message;
+    auto decoder = Decoder::open(source, error_message);
     atomic<bool> cancel{true};
     auto encoder = make_encoder({});
     REQUIRE(encoder->encode(*decoder, temp_dir.path / "long.mp3", {}, cancel, nullptr) == "cancelled");
@@ -136,9 +136,9 @@ TEST_CASE("LameEncoder stops when cancelled") {
 
 TEST_CASE("LameEncoder refuses more than two channels") {
     TempDir temp_dir;
-    auto src = make_audio(temp_dir.path / "4ch.wav", {.channels = 4, .seconds = 0.1});
-    string err;
-    auto decoder = Decoder::open(src, err);
+    auto source = make_audio(temp_dir.path / "4ch.wav", {.channels = 4, .seconds = 0.1});
+    string error_message;
+    auto decoder = Decoder::open(source, error_message);
     atomic<bool> cancel{false};
     REQUIRE(make_encoder({})->encode(*decoder, temp_dir.path / "4ch.mp3", {}, cancel, nullptr) != "");
 }

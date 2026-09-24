@@ -56,12 +56,12 @@ fs::path make_audio(const fs::path& file, const FixtureSpec& spec) {
     set(SF_STR_COMMENT, spec.tags.comment);
 
     const int64_t frames = static_cast<int64_t>(spec.rate * spec.seconds);
-    vector<float> buf(static_cast<size_t>(frames) * spec.channels);
+    vector<float> samples(static_cast<size_t>(frames) * spec.channels);
     for (int64_t frame = 0; frame < frames; ++frame) {
         float sample = static_cast<float>(spec.amplitude * sin(2.0 * kPi * spec.freq_hz * frame / spec.rate));
-        for (int channel = 0; channel < spec.channels; ++channel) buf[frame * spec.channels + channel] = sample;
+        for (int channel = 0; channel < spec.channels; ++channel) samples[frame * spec.channels + channel] = sample;
     }
-    sf_writef_float(sndfile, buf.data(), frames);
+    sf_writef_float(sndfile, samples.data(), frames);
     sf_close(sndfile);
     return file;
 }

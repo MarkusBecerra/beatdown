@@ -55,13 +55,13 @@ int run(const Options& options, Reporter& reporter, atomic<bool>& cancel, Conver
     resolved_options.destination = fs::absolute(resolved_options.destination, absolute_error);
 
     Summary summary;
-    string err;
+    string error_message;
     error_code fs_error;
     if (!fs::exists(resolved_options.source, fs_error)) { reporter.error("source does not exist: " + path_to_utf8(resolved_options.source)); return 2; }
     if (!validate_destination(resolved_options, reporter)) return 2;
 
-    Plan plan = scan(resolved_options, err);
-    if (!err.empty()) { reporter.error(err); return 2; }
+    Plan plan = scan(resolved_options, error_message);
+    if (!error_message.empty()) { reporter.error(error_message); return 2; }
     int jobs = resolved_options.effective_jobs();
     reporter.plan(plan, jobs, resolved_options);
     for (const auto& job : plan.skipped) reporter.skipped(job);
