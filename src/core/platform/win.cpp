@@ -1,0 +1,45 @@
+#include <windows.h>
+#include "core/platform/platform.hpp"
+
+namespace beatdown::platform {
+
+static atomic<bool>* g_flag = nullptr;
+
+static BOOL WINAPI on_ctrl(DWORD type) {
+    if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT || type == CTRL_CLOSE_EVENT) {
+        if (g_flag && !g_flag->exchange(true)) return TRUE;  // first: handled
+        return FALSE;                                        // second: default action
+    }
+    return FALSE;
+}
+
+void install_interrupt_handler(atomic<bool>& flag) {
+    g_flag = &flag;
+    SetConsoleCtrlHandler(on_ctrl, TRUE);
+}
+
+void console_utf8() {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+}
+
+SNDFILE* sf_open_path(const fs::path& path, int mode, SF_INFO* info) {
+    return sf_wchar_open(path.c_str(), mode, info);
+}
+
+optional<FileId> file_id(const fs::path& path) {
+    // Access 0 (metadata only, no read/write) with full sharing so this never contends with
+    // another process's open handle; FILE_FLAG_BACKUP_SEMANTICS is required to open a directory
+    // and also relaxes the access checks CreateFileW would otherwise apply.
+    HANDLE handle = CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return nullopt;
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool ok = GetFileInformationByHandle(handle, &info) != 0;
+    CloseHandle(handle);
+    if (!ok) return nullopt;
+    return FileId{static_cast<uint64_t>(info.dwVolumeSerialNumber),
+                  (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow};
+}
+
+}  // namespace beatdown::platform

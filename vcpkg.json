@@ -1,0 +1,13 @@
+{
+  "name": "beatdown",
+  "version-string": "0.1.0",
+  "description": "Local batch converter: WAV/AIFF/FLAC -> 320 kbps MP3 or FLAC for rekordbox",
+  "license": "MIT",
+  "dependencies": [
+    { "name": "libsndfile", "default-features": false, "features": ["external-libs", "mpeg"] },
+    "mp3lame",
+    "cli11",
+    "catch2"
+  ],
+  "builtin-baseline": "3b40cc830657ee5c16704c3eb598a6bc70e150c7"
+}
