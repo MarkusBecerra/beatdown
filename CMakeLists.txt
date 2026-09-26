@@ -20,6 +20,7 @@ endif()
 find_package(SndFile CONFIG REQUIRED)
 find_package(mp3lame CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
+find_package(FFMPEG REQUIRED)   # vcpkg's FindFFMPEG: FFMPEG_INCLUDE_DIRS / _LIBRARY_DIRS / _LIBRARIES
 find_package(Threads REQUIRED)
 
 add_library(beatdown_core STATIC
@@ -27,6 +28,7 @@ add_library(beatdown_core STATIC
   src/core/tags.cpp
   src/core/unicode.cpp
   src/core/decoder.cpp
+  src/core/m4a_decoder.cpp
   src/core/id3v2.cpp
   src/core/scanner.cpp
   src/core/mp3_parse.cpp
@@ -43,6 +45,10 @@ add_library(beatdown_core STATIC
 )
 target_include_directories(beatdown_core PUBLIC src)
 target_link_libraries(beatdown_core PUBLIC SndFile::sndfile mp3lame::mp3lame Threads::Threads)
+# FFmpeg decodes M4A (m4a_decoder.cpp only); no public header includes it.
+target_include_directories(beatdown_core PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(beatdown_core PUBLIC ${FFMPEG_LIBRARY_DIRS})
+target_link_libraries(beatdown_core PRIVATE ${FFMPEG_LIBRARIES})
 target_compile_definitions(beatdown_core PUBLIC BEATDOWN_VERSION="${PROJECT_VERSION}")
 if(WIN32)
   target_compile_definitions(beatdown_core PUBLIC
@@ -66,6 +72,7 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_platform.cpp
     tests/fixtures.cpp
     tests/test_decoder.cpp
+    tests/test_m4a_decoder.cpp
     tests/test_id3v2.cpp
     tests/test_scanner.cpp
     tests/test_mp3_parse.cpp
@@ -80,8 +87,9 @@ if(BEATDOWN_BUILD_TESTS)
     tests/test_runner.cpp
     tests/test_cli.cpp
   )
-  target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain)
-  target_include_directories(beatdown_tests PRIVATE tests)
+  target_link_libraries(beatdown_tests PRIVATE beatdown_core Catch2::Catch2WithMain ${FFMPEG_LIBRARIES})
+  # The M4A fixtures are encoded with FFmpeg's own AAC/ALAC encoders and MP4 muxer.
+  target_include_directories(beatdown_tests PRIVATE tests ${FFMPEG_INCLUDE_DIRS})
   target_compile_definitions(beatdown_tests PRIVATE BEATDOWN_BIN="$<TARGET_FILE:beatdown>")
   add_dependencies(beatdown_tests beatdown)
   include(Catch)

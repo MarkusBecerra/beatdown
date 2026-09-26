@@ -10,6 +10,7 @@ static Options make_options(const fs::path& source, const fs::path& destination)
 TEST_CASE("is_audio_input matches extensions case-insensitively") {
     REQUIRE(is_audio_input("a.wav")); REQUIRE(is_audio_input("a.WAV")); REQUIRE(is_audio_input("a.Aiff"));
     REQUIRE(is_audio_input("a.aif")); REQUIRE(is_audio_input("a.flac"));
+    REQUIRE(is_audio_input("a.m4a")); REQUIRE(is_audio_input("a.M4A"));
     REQUIRE_FALSE(is_audio_input("a.mp3")); REQUIRE_FALSE(is_audio_input("a.txt")); REQUIRE_FALSE(is_audio_input("wav"));
 }
 
@@ -86,6 +87,19 @@ TEST_CASE("scan uses .flac outputs for --format flac and never maps a file onto 
 static string note_for(const vector<Job>& jobs, const fs::path& source) {
     for (const auto& job : jobs) if (job.source == source) return job.note;
     return "<not in this list>";
+}
+
+TEST_CASE("scan pairs an M4A with an MP3 output, and a same-named WAV with the same one") {
+    TempDir temp_dir;
+    write_bytes(temp_dir.path / "src/purchase.m4a", "x");
+    write_bytes(temp_dir.path / "src/track.m4a", "x");
+    write_bytes(temp_dir.path / "src/track.wav", "x");
+    string error_message;
+    Plan plan = scan(make_options(temp_dir.path / "src", temp_dir.path / "out"), error_message);
+    REQUIRE(plan.to_convert.size() == 2);
+    REQUIRE(plan.to_convert[0].output == temp_dir.path / "out/purchase.mp3");
+    REQUIRE(plan.to_convert[1].source == temp_dir.path / "src/track.m4a");   // sorts first
+    REQUIRE(note_for(plan.skipped, temp_dir.path / "src/track.wav") == "same output as track.m4a");
 }
 
 TEST_CASE("scan keeps the first of two sources that map to the same output and skips the other") {

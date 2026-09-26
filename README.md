@@ -2,13 +2,13 @@
 
 ![CI](https://github.com/MarkusBecerra/beatdown/actions/workflows/ci.yml/badge.svg)
 
-beatdown is a command-line tool that batch-converts a folder of WAV, AIFF or FLAC files into 320 kbps CBR MP3s — the format every CDJ and rekordbox standardise on, and the default here — or lossless FLAC (`--format flac`) for players that support it. It runs entirely on your machine, with no network access at all, and ships as a single self-contained binary for macOS, Windows and Linux, so a fresh machine needs nothing installed first.
+beatdown is a command-line tool that batch-converts a folder of WAV, AIFF, FLAC or M4A (AAC or Apple Lossless) files into 320 kbps CBR MP3s — the format every CDJ and rekordbox standardise on, and the default here — or lossless FLAC (`--format flac`) for players that support it. It runs entirely on your machine, with no network access at all, and ships as a single self-contained binary for macOS, Windows and Linux, so a fresh machine needs nothing installed first.
 
 ## Install
 
 Release binaries — macOS 11 or later (universal, arm64 + x86_64), Windows x64 and Linux x86_64 — are built by the release workflow and attached to [Releases](https://github.com/MarkusBecerra/beatdown/releases) when a version is tagged. None has been published yet, so for now build from source — one recipe on all three OSes.
 
-Prerequisites: CMake 3.25 or newer, Ninja and a C++20 compiler; on macOS and Linux also pkg-config and the autotools (autoconf, automake, libtool) — on macOS, `brew install cmake ninja pkg-config autoconf automake libtool`. On Windows, run the commands from a Visual Studio 2022 Developer prompt (MSVC).
+Prerequisites: CMake 3.25 or newer, Ninja and a C++20 compiler; on macOS and Linux also pkg-config, the autotools (autoconf, automake, libtool) and, for an x86_64 build, nasm (FFmpeg's assembly; vcpkg fetches it itself on Windows) — on macOS, `brew install cmake ninja pkg-config autoconf automake libtool nasm`. On Windows, run the commands from a Visual Studio 2022 Developer prompt (MSVC).
 
 ```
 git clone --recursive https://github.com/MarkusBecerra/beatdown.git
@@ -18,7 +18,7 @@ cmake --preset default
 cmake --build --preset default
 ```
 
-`--recursive` matters: vcpkg is pinned as a submodule under `external/vcpkg`, and bootstrapping builds vcpkg itself before it can fetch the rest of the dependencies. The first configure then builds every dependency from source, which takes several minutes; later configures reuse them. The binary lands at `build/default/beatdown` (`build\default\beatdown.exe` on Windows).
+`--recursive` matters: vcpkg is pinned as a submodule under `external/vcpkg`, and bootstrapping builds vcpkg itself before it can fetch the rest of the dependencies. The first configure then builds every dependency from source, which takes a while — FFmpeg (for M4A) is by far the biggest; later configures reuse them. The binary lands at `build/default/beatdown` (`build\default\beatdown.exe` on Windows).
 
 Only macOS (Apple Silicon) has been built and run by hand so far — see *Platform status* below.
 
@@ -27,7 +27,7 @@ Only macOS (Apple Silicon) has been built and run by hand so far — see *Platfo
 ```
 beatdown <source> <destination> [options]
 
-  <source>          folder (or single file) of WAV / AIFF / FLAC files
+  <source>          folder (or single file) of WAV / AIFF / FLAC / M4A files
   <destination>     folder to write MP3s into; created if missing
 
   --format mp3|flac output format (default: mp3 — 320 kbps CBR; flac — lossless)
@@ -64,6 +64,7 @@ gives Artist `simple fact`, Title `slipz` — the output *filename* is unaffecte
 - **FLAC bit depth.** 16- and 24-bit sources are written bit-exact. 32-bit integer and 32-bit float sources are written as 24-bit FLAC, because libsndfile's FLAC writer tops out at 24 bits.
 - **MP3 sample rate.** 44.1 and 48 kHz sources keep their rate; higher rates are resampled to 48 kHz and lower ones to 44.1 kHz — the MPEG-1 rates, the only ones at which 320 kbps exists.
 - **MP3 bitrate/VBR range.** `--bitrate` accepts 128–320 kbps and `--vbr` accepts levels 0–3 and 5–8: lower settings aren't club quality, and beatdown can't verify their audio content reliably (below 128 kbps CBR, LAME may omit the tag its own gapless decoding depends on; VBR level 4 and 9 measured outside the level-check tolerance on real bright material — see the task report in `.superpowers/` for the numbers).
+- **M4A sources.** `.m4a` files are read whether they hold ALAC (Apple Lossless) or AAC, and are recognised by content, like everything else (an M4A renamed to `.wav` is still read as M4A). ALAC converts losslessly: a FLAC made from it decodes bit-identical to the ALAC. AAC is lossy in its own right, so it can't give back more than it kept — an MP3 made from it carries AAC's losses as well as its own, and a FLAC made from it is a lossless copy of the *decoded AAC*, not of the original master (written as 24-bit, like any float source). Either way the conversion is gapless — the encoder's priming and padding are trimmed, so the output is as long as the original — and the tags (title, artist, album, year, track, genre, comment) carry over. Any other codec in an MP4 container (AC-3, MP3, …) is refused by name, and a file whose audio stops before its index says it should (an interrupted download) fails with "the audio ends early" rather than producing a shorter track. Decoding is FFmpeg's, through its own AAC and ALAC decoders on every OS (never Apple's AudioToolbox on a Mac), so a given file converts identically everywhere.
 - **MP3 sources are refused.** A source that's already MP3 data (including one saved with a `.wav` extension) fails with "source is MP3 data — not re-encoding lossy audio" — re-encoding an already-lossy file only compounds the loss.
 - **Ctrl-C.** The first press stops launching new encodes and aborts the ones in flight — their temp files are removed, so nothing half-written is left behind — then prints the summary and exits 130. Press it again to force-quit immediately; that skips the cleanup and can leave a hidden `.beatdown-….part` temp file in the destination, which is safe to delete.
 - **Exit codes.** `0` everything converted or skipped · `1` one or more files failed, or the free-space check failed (including a `--dry-run` whose projection shows insufficient space) · `2` bad arguments, or a destination whose parent folder doesn't exist · `130` interrupted by Ctrl-C.
@@ -124,6 +125,6 @@ Beyond that one-time measurement, every file beatdown converts now has its *audi
 
 ## Licence
 
-beatdown itself is MIT-licensed (see `LICENSE`). It statically links three LGPL libraries: libmp3lame (LGPL-2.0 — vcpkg's port metadata says LGPL-2.0-only), libsndfile (LGPL-2.1-or-later) and mpg123 (LGPL-2.1-or-later — libsndfile's MP3-decoding backend, used to verify a converted MP3's audio content against its source). The LGPL requires that relinking against a different build of those libraries stay possible: this repository, together with the pinned `external/vcpkg` submodule that fixes their exact versions and build flags, is the complete recipe for that — `git clone --recursive` and the two build commands above reproduce the exact libraries any given release was linked against.
+beatdown itself is MIT-licensed (see `LICENSE`). It statically links four LGPL libraries: libmp3lame (LGPL-2.0 — vcpkg's port metadata says LGPL-2.0-only), libsndfile (LGPL-2.1-or-later), mpg123 (LGPL-2.1-or-later — libsndfile's MP3-decoding backend, used to verify a converted MP3's audio content against its source) and FFmpeg's libavformat, libavcodec and libavutil (LGPL-2.1-or-later — built without FFmpeg's GPL and non-free parts; they decode M4A). The LGPL requires that relinking against a different build of those libraries stay possible: this repository, together with the pinned `external/vcpkg` submodule that fixes their exact versions and build flags, is the complete recipe for that — `git clone --recursive` and the two build commands above reproduce the exact libraries any given release was linked against.
 
 Release binaries also contain libFLAC, libogg, libvorbis and opus (which libsndfile uses for FLAC and Ogg Vorbis/Opus) and CLI11 (compiled in from its headers), all under BSD-style licences whose copyright notices must ship with the binaries; vcpkg installs each one's licence text as `share/<port>/copyright` under `build/<preset>/vcpkg_installed/<triplet>/`.
