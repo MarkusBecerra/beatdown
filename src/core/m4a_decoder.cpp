@@ -154,6 +154,8 @@ private:
     int64_t decoded_frames_ = 0;    // every frame the decoder has produced so far
     int64_t delivered_frames_ = 0;  // every frame read() has handed out so far
     int64_t declared_frames_ = 0;   // the track's own length, edit list applied; 0 if it doesn't say
+    string length_mismatch_;        // the latest frame's length disagreed with the container (see next_frame())
+    bool mismatch_was_short_ = false;
     bool at_end_ = false;
 };
 
@@ -191,6 +193,8 @@ bool M4aDecoder::start(string& error) {
     sample_format_ = AV_SAMPLE_FMT_NONE;
     frame_offset_ = 0;
     decoded_frames_ = delivered_frames_ = declared_frames_ = 0;
+    length_mismatch_.clear();
+    mismatch_was_short_ = false;
     at_end_ = false;
     read_error_.clear();
     info_ = AudioInfo{};
@@ -314,6 +318,25 @@ bool M4aDecoder::next_frame() {
                 read_error_ = "the audio format changes partway through the stream";
                 return false;
             }
+            // Every frame should hold exactly the samples the container assigned its packet --
+            // FFmpeg keeps the two in step even while it trims the encoder's priming. A damaged
+            // packet the decoder doesn't notice can still decode to the wrong length (13% of
+            // garbage-filled ALAC packets did, when measured), and this is what catches it. The
+            // stream's last frame is the one legitimate exception: it runs long by the encoder's
+            // padding, which read() drops. So a mismatch counts only once another frame follows
+            // it, or at the end if the last frame came up short rather than long.
+            if (!length_mismatch_.empty()) {
+                read_error_ = length_mismatch_;
+                return false;
+            }
+            const int64_t expected = frame_->duration > 0
+                ? av_rescale_q(frame_->duration, codec_->pkt_timebase, AVRational{1, frame_->sample_rate})
+                : frame_->nb_samples;
+            if (frame_->nb_samples != expected) {
+                length_mismatch_ = "the audio data is damaged (a packet decoded to " + to_string(frame_->nb_samples) +
+                                   " samples where the file says " + to_string(expected) + ")";
+                mismatch_was_short_ = frame_->nb_samples < expected;
+            }
             frame_offset_ = 0;
             decoded_frames_ += frame_->nb_samples;
             return true;
@@ -330,12 +353,23 @@ bool M4aDecoder::next_frame() {
             continue;
         }
         if (result < 0) return fail("the MP4 container is damaged", result);
+        if (packet_->stream_index == stream_index_ && (packet_->flags & AV_PKT_FLAG_CORRUPT)) {
+            // The demuxer could only read part of this packet (the file ends inside it): refuse
+            // it rather than hand the decoder half a packet and hope it complains.
+            av_packet_unref(packet_.get());
+            read_error_ = "the MP4 container is damaged (an audio packet is cut short)";
+            return false;
+        }
         if (packet_->stream_index == stream_index_) result = avcodec_send_packet(codec_.get(), packet_.get());
         av_packet_unref(packet_.get());
         if (result < 0) return fail("the audio data is damaged", result);
     }
 
     at_end_ = true;
+    if (!length_mismatch_.empty() && mismatch_was_short_) {
+        read_error_ = length_mismatch_;
+        return false;
+    }
     // Verification re-decodes the source through this same decoder, so audio missing from the
     // file would be missing from both sides of that comparison and never noticed; only the
     // container's declared length can tell. See kShortfallToleranceSeconds.

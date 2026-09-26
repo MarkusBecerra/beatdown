@@ -40,25 +40,48 @@ double rms_dbfs(const vector<float>& samples, size_t first, size_t last) {
     return 20.0 * log10(sqrt(sum / double(last - first)));
 }
 
-// The file offset just past the last audio packet that ends before `fraction` of `file`, found
-// with FFmpeg's own demuxer. Cutting the file there leaves only whole packets, so nothing is
-// damaged: the audio simply runs out before the index says it should.
-int64_t packet_boundary(const fs::path& file, double fraction) {
+struct PacketSpan { int64_t pos; int size; };
+
+// Where each audio packet sits in `file`, found with FFmpeg's own demuxer.
+vector<PacketSpan> audio_packets(const fs::path& file) {
     AVFormatContext* context = nullptr;
     REQUIRE(avformat_open_input(&context, path_to_utf8(file).c_str(), nullptr, nullptr) == 0);
-    const auto target = static_cast<int64_t>(static_cast<double>(fs::file_size(file)) * fraction);
-    int64_t boundary = 0;
+    vector<PacketSpan> packets;
     AVPacket* packet = av_packet_alloc();
     while (av_read_frame(context, packet) >= 0) {
-        const int64_t end = packet->pos + packet->size;
+        packets.push_back({packet->pos, packet->size});
         av_packet_unref(packet);
-        if (end > target) break;
-        boundary = end;
     }
     av_packet_free(&packet);
     avformat_close_input(&context);
+    return packets;
+}
+
+// The file offset just past the last audio packet that ends before `fraction` of `file`. Cutting
+// the file there leaves only whole packets, so nothing is damaged: the audio simply runs out
+// before the index says it should.
+int64_t packet_boundary(const fs::path& file, double fraction) {
+    const auto target = static_cast<int64_t>(static_cast<double>(fs::file_size(file)) * fraction);
+    int64_t boundary = 0;
+    for (const PacketSpan& packet : audio_packets(file)) {
+        if (packet.pos + packet.size > target) break;
+        boundary = packet.pos + packet.size;
+    }
     return boundary;
 }
+
+// Most-significant bit first, the order ALAC's bitstream uses.
+struct BitWriter {
+    string bytes;
+    int used = 0;   // bits already used in bytes.back()
+    void put(uint32_t value, int count) {
+        for (int bit = count - 1; bit >= 0; --bit) {
+            if (used == 0) bytes.push_back('\0');
+            if ((value >> bit) & 1u) bytes.back() = static_cast<char>(bytes.back() | (0x80 >> used));
+            used = (used + 1) % 8;
+        }
+    }
+};
 
 }  // namespace
 
@@ -227,7 +250,7 @@ TEST_CASE("Decoder reports an M4A whose audio ends early instead of just stoppin
     // Index in front, as iTunes writes it: the index survives the cut and still promises 4 s.
     auto file = make_m4a(temp_dir.path / "cut.m4a", codec, {.subtype = SF_FORMAT_PCM_16, .rate = 44100, .seconds = 4.0}, true);
     // Cut between packets, the demuxer just runs out (only the length check can tell); cut
-    // mid-packet, the decoder is handed half a packet.
+    // mid-packet, the demuxer flags the packet it could only half read.
     fs::resize_file(file, on_packet_boundary ? packet_boundary(file, 0.5) : fs::file_size(file) / 2 + 7);
     string error_message;
     auto decoder = Decoder::open(file, error_message);
@@ -237,8 +260,7 @@ TEST_CASE("Decoder reports an M4A whose audio ends early instead of just stoppin
     vector<float> samples = read_all<float>(*decoder);
     INFO(decoder->read_error());
     REQUIRE(samples.size() / 2 < 3 * 44100);
-    if (on_packet_boundary) REQUIRE_THAT(decoder->read_error(), ContainsSubstring("the audio ends early"));
-    else REQUIRE_FALSE(decoder->read_error().empty());
+    REQUIRE_THAT(decoder->read_error(), ContainsSubstring(on_packet_boundary ? "the audio ends early" : "an audio packet is cut short"));
     REQUIRE(decoder->read_float(samples.data(), 1) == 0);   // stays stopped
 }
 
@@ -271,4 +293,42 @@ TEST_CASE("M4A seek_start that can't reopen the file leaves a decoder that reads
     REQUIRE(decoder->read_float(buffer.data(), 1024) == 0);
     vector<int32_t> ints(1024 * 2);
     REQUIRE(decoder->read_int(ints.data(), 1024) == 0);
+}
+
+// ALAC and AAC in an MP4 carry no checksum, so damage can decode without the decoder noticing.
+// One thing it can still get wrong is the length: this packet is valid ALAC (an uncompressed block
+// of silence), but holds far fewer samples than the container gave it -- what 13% of
+// garbage-filled ALAC packets looked like, measured. Only comparing the two catches it.
+TEST_CASE("Decoder rejects an M4A packet that decodes to a different length than the file gives it") {
+    TempDir temp_dir;
+    auto file = make_m4a(temp_dir.path / "a.m4a", M4aCodec::Alac, {.subtype = SF_FORMAT_PCM_16, .rate = 44100, .channels = 1, .seconds = 2.0});
+    vector<PacketSpan> packets = audio_packets(file);
+    REQUIRE(packets.size() > 3);
+    // An uncompressed mono element of N 16-bit samples plus its end tag takes 58 + 16N bits, and
+    // ALAC allows at most 8 unused bits at the end: an even-sized packet leaves 6.
+    auto victim = find_if(packets.begin() + 1, packets.end() - 1, [](const PacketSpan& packet) { return packet.size % 2 == 0; });
+    REQUIRE(victim != packets.end() - 1);
+    const auto samples = static_cast<uint32_t>((victim->size * 8 - 58) / 16);
+    REQUIRE(samples > 0);
+    REQUIRE(samples < 4096);   // the container gives every packet but the last 4096
+    BitWriter bits;
+    bits.put(0, 3);         // SCE: a single-channel element
+    bits.put(0, 4 + 12);    // element instance tag, unused header bits
+    bits.put(1, 1);         // has_size: the sample count follows
+    bits.put(0, 2);         // no extra low bits
+    bits.put(1, 1);         // not compressed: raw samples follow
+    bits.put(samples, 32);
+    for (uint32_t index = 0; index < samples; ++index) bits.put(0, 16);
+    bits.put(7, 3);         // END
+    REQUIRE(bits.bytes.size() == static_cast<size_t>(victim->size));
+    string data = read_file(file);
+    data.replace(static_cast<size_t>(victim->pos), bits.bytes.size(), bits.bytes);
+    write_bytes(file, data);
+
+    string error_message;
+    auto decoder = Decoder::open(file, error_message);
+    INFO(error_message);
+    REQUIRE(decoder);
+    read_all<float>(*decoder);
+    REQUIRE_THAT(decoder->read_error(), ContainsSubstring("a packet decoded to " + to_string(samples) + " samples where the file says 4096"));
 }
