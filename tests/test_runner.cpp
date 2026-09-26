@@ -259,20 +259,22 @@ TEST_CASE("run never lets an output overwrite a source file reached under a diff
     }
 }
 
-// Fix round 1 (quadratic-cost finding): overwrites_a_source prefilters each canonical-parent
-// bucket by file size before calling fs::equivalent, so an output whose size doesn't match a
-// candidate never triggers the (more expensive) identity check against it. This must not cost a
-// genuine match: reuses the NFC/NFD "Café" twin pair alongside a few extra same-folder WAVs of
-// clearly different lengths, which land in other size buckets and must be skipped over, not let
-// the real match slip through.
-TEST_CASE("run's overwrite check still finds a filesystem-equal name among differently sized siblings") {
+// Task 17 (quadratic-cost finding): among several same-folder sources, a destination name that
+// the filesystem treats as the same file as an existing source is still found and skipped,
+// whatever the other siblings are. Reuses the NFC/NFD "Café" twin pair from the test above,
+// alongside a few extra same-folder WAVs. overwrites_a_source matches on file identity: it looks
+// up the existing output's platform::file_id in a set of every source's id, built before any job
+// runs, so the siblings' sizes play no part. Every id is readable here, so this covers that
+// lookup, not the fs::equivalent fallback (bucketed by canonical parent) for sources whose id
+// can't be read.
+TEST_CASE("run's overwrite check still finds a filesystem-equal name among several same-folder sources") {
     TempDir temp_dir;
     fs::path flac_path = temp_dir.path / "src" / path_from_utf8("Cafe\xCC\x81.flac");   // NFD "Café"
     make_audio(flac_path, {.container = SF_FORMAT_FLAC, .subtype = SF_FORMAT_PCM_16, .seconds = 2.0});
     fs::path wav_source = temp_dir.path / "src" / path_from_utf8("Caf\xC3\xA9.wav");    // NFC "Café"
     make_audio(wav_source, {.seconds = 1.0});
-    // Extra same-folder sources with clearly different lengths (so clearly different byte sizes),
-    // populating other size buckets in the same canonical-parent bucket as the twin pair above.
+    // Extra same-folder sources, differing in length (so in byte size) from the twin pair and
+    // from each other. Whatever they are, the WAV's match must still be found.
     make_audio(temp_dir.path / "src/other1.wav", {.seconds = 0.3});
     make_audio(temp_dir.path / "src/other2.wav", {.seconds = 0.7});
     make_audio(temp_dir.path / "src/other3.wav", {.seconds = 1.5});

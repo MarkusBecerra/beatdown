@@ -62,6 +62,5 @@ CMake registers every Catch2 `TEST_CASE` as its own ctest test. Keep test names 
 
 - The test binary links FFmpeg directly, not just through `beatdown_core`, because `make_m4a` uses FFmpeg's encoders and MP4 muxer. `test_m4a_decoder.cpp` also uses FFmpeg's demuxer to find where each packet sits inside a file.
 - Some comments here cite the review finding or ruling that motivated a test ("Task 18 fix round 2", "Finding 3"). [`../docs/superpowers/plans/README.md`](../docs/superpowers/plans/README.md) explains the labels.
-- One comment in `test_runner.cpp`, above the "differently sized siblings" test, still describes a file-size prefilter the scanner no longer uses. The test itself remains valid, and the rulings log lists the comment as a known leftover.
 
 Up: [repository overview](../ARCHITECTURE.md)
