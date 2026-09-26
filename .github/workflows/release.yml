@@ -20,7 +20,7 @@ jobs:
           key: vcpkg-${{ runner.os }}-default-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-default-
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool pkg-config nasm
       - run: ./external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset default -DBEATDOWN_BUILD_TESTS=OFF && cmake --build --preset default
       - run: tar -C build/default -czf beatdown-${{ github.ref_name }}-linux-x86_64.tar.gz beatdown
@@ -43,7 +43,7 @@ jobs:
           key: vcpkg-${{ runner.os }}-macos-universal-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-macos-universal-
-      - run: brew install ninja pkg-config automake autoconf libtool
+      - run: brew install ninja pkg-config automake autoconf libtool nasm
       - run: ./external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset macos-arm64 && cmake --build --preset macos-arm64
       - run: cmake --preset macos-x64 && cmake --build --preset macos-x64

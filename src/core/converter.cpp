@@ -76,6 +76,9 @@ FileResult convert_one(const Job& job, const Options& options, const atomic<bool
         result.disk_full = looks_like_disk_full(encode_error, available, estimated);
         return done(Outcome::Failed, encode_error);
     }
+    // The encoders stop at the first read that returns nothing, which is also how a decoder that
+    // gave up partway through (a damaged M4A) looks to them -- this is where the two differ.
+    if (!decoder->read_error().empty()) return done(Outcome::Failed, "cannot decode source: " + decoder->read_error());
     string verify_error = verify_output(tmp, options.encode, decoder->info());
     if (!verify_error.empty()) return done(Outcome::Failed, "verification failed: " + verify_error);
     ContentCheckResult content_check = verify_content(tmp, options.encode, job.source);

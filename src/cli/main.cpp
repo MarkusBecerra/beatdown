@@ -38,7 +38,7 @@ static atomic<bool> g_cancel{false};
 
 int main(int argc, char** argv) {
     beatdown::platform::console_utf8();
-    CLI::App app{"Convert a folder of WAV/AIFF/FLAC files to 320 kbps MP3 (or FLAC) for rekordbox.", "beatdown"};
+    CLI::App app{"Convert a folder of WAV/AIFF/FLAC/M4A files to 320 kbps MP3 (or FLAC) for rekordbox.", "beatdown"};
     argv = app.ensure_utf8(argv);
     app.set_version_flag("--version", string("beatdown ") + beatdown::version());
     app.get_formatter()->column_width(22);
@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
     int vbr = -1;
     bool no_recursive = false;
 
-    app.add_option("source", source, "Folder (or single file) of WAV / AIFF / FLAC files")->required();
+    app.add_option("source", source, "Folder (or single file) of WAV / AIFF / FLAC / M4A files")->required();
     app.add_option("destination", destination, "Folder to write outputs into; its last component is created if missing")->required();
     app.add_option("--format", format, "Output format: mp3 (320 kbps CBR) or flac (lossless)")
         ->check(CLI::IsMember({"mp3", "flac"}))->default_str("mp3");

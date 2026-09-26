@@ -12,7 +12,7 @@ namespace beatdown {
 bool is_audio_input(const fs::path& path) {
     string ext = path_to_utf8(path.extension());
     transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char character) { return tolower(character); });
-    return ext == ".wav" || ext == ".wave" || ext == ".aif" || ext == ".aiff" || ext == ".aifc" || ext == ".flac";
+    return ext == ".wav" || ext == ".wave" || ext == ".aif" || ext == ".aiff" || ext == ".aifc" || ext == ".flac" || ext == ".m4a";
 }
 
 namespace {

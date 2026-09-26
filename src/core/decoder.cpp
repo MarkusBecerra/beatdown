@@ -4,10 +4,13 @@
 #include "core/platform/platform.hpp"
 #include "core/unicode.hpp"
 #include "core/id3v2.hpp"
+#include "core/m4a_decoder.hpp"
 
 namespace beatdown {
 
-static int bits_for(int format) {
+namespace {
+
+int bits_for(int format) {
     switch (format & SF_FORMAT_SUBMASK) {
         case SF_FORMAT_PCM_S8: case SF_FORMAT_PCM_U8: return 8;
         case SF_FORMAT_PCM_16: return 16;
@@ -19,18 +22,28 @@ static int bits_for(int format) {
 }
 
 // libsndfile hands back the tag's bytes as stored, which older Windows tools wrote as cp1252.
-static optional<string> read_sndfile_string(SNDFILE* sndfile, int key) {
+optional<string> read_sndfile_string(SNDFILE* sndfile, int key) {
     const char* value = sf_get_string(sndfile, key);
     if (!value || !*value) return nullopt;
     return sanitize_utf8(value);
 }
 
-mutex& sf_open_mutex() {
-    static mutex mutex_instance;
-    return mutex_instance;
-}
+// WAV, AIFF and FLAC -- and MP3, which libsndfile recognises so the converter can refuse it.
+class SndfileDecoder : public Decoder {
+public:
+    static unique_ptr<Decoder> open(const fs::path& path, string& error);
+    ~SndfileDecoder() override { if (sndfile_) sf_close(sndfile_); }
 
-unique_ptr<Decoder> Decoder::open(const fs::path& path, string& error) {
+    int64_t read_float(float* out, int64_t frames) override { return sf_readf_float(sndfile_, out, frames); }
+    int64_t read_int(int32_t* out, int64_t frames) override { return sf_readf_int(sndfile_, out, frames); }
+    bool seek_start() override { return sf_seek(sndfile_, 0, SEEK_SET) == 0; }
+
+private:
+    SndfileDecoder() = default;
+    SNDFILE* sndfile_ = nullptr;
+};
+
+unique_ptr<Decoder> SndfileDecoder::open(const fs::path& path, string& error) {
     SF_INFO info{};
     SNDFILE* sndfile;
     {
@@ -49,7 +62,7 @@ unique_ptr<Decoder> Decoder::open(const fs::path& path, string& error) {
         sf_close(sndfile);
         return nullptr;
     }
-    unique_ptr<Decoder> decoder(new Decoder());
+    unique_ptr<SndfileDecoder> decoder(new SndfileDecoder());
     decoder->sndfile_ = sndfile;
     decoder->path_ = path;
     decoder->info_.channels = info.channels;
@@ -71,10 +84,16 @@ unique_ptr<Decoder> Decoder::open(const fs::path& path, string& error) {
     return decoder;
 }
 
-Decoder::~Decoder() { if (sndfile_) sf_close(sndfile_); }
+}  // namespace
 
-int64_t Decoder::read_float(float* out, int64_t frames) { return sf_readf_float(sndfile_, out, frames); }
-int64_t Decoder::read_int(int32_t* out, int64_t frames) { return sf_readf_int(sndfile_, out, frames); }
-bool Decoder::seek_start() { return sf_seek(sndfile_, 0, SEEK_SET) == 0; }
+mutex& sf_open_mutex() {
+    static mutex mutex_instance;
+    return mutex_instance;
+}
+
+unique_ptr<Decoder> Decoder::open(const fs::path& path, string& error) {
+    if (looks_like_mp4(path)) return open_m4a(path, error);
+    return SndfileDecoder::open(path, error);
+}
 
 }  // namespace beatdown

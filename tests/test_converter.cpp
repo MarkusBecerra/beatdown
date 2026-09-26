@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <atomic>
 #include <cctype>
@@ -271,4 +272,91 @@ TEST_CASE("convert_one succeeds when the source's declared frame count exceeds w
     atomic<bool> cancel{false};
     FileResult result = convert_one(job(source, temp_dir.path / "out/a.mp3"), make_options(temp_dir.path / "out"), cancel);
     REQUIRE(result.outcome == Outcome::Converted);
+}
+
+TEST_CASE("convert_one turns an AAC M4A into a verified MP3 that keeps its tags") {
+    TempDir temp_dir;
+    Tags tags; tags.title = "Deep Cut"; tags.artist = "Måns – 東京"; tags.track = "3/12";
+    auto source = make_m4a(temp_dir.path / "src/a.m4a", M4aCodec::Aac, {.rate = 44100, .seconds = 3.0, .tags = tags});
+    fs::create_directories(temp_dir.path / "out");
+    atomic<bool> cancel{false};
+    FileResult result = convert_one(job(source, temp_dir.path / "out/a.mp3"), make_options(temp_dir.path / "out"), cancel);
+    INFO(result.error);
+    REQUIRE(result.outcome == Outcome::Converted);   // includes the content check against the decoded AAC
+    REQUIRE(result.peak_dbfs.has_value());
+    REQUIRE_FALSE(has_temp_files(temp_dir.path / "out"));
+    Mp3Info info;
+    string error_message;
+    REQUIRE(parse_mp3(temp_dir.path / "out/a.mp3", info, error_message));
+    REQUIRE(info.sample_rate == 44100);
+    REQUIRE(info.cbr(320));
+    REQUIRE(info.tags.title == "Deep Cut");
+    REQUIRE(info.tags.artist == "Måns – 東京");
+    REQUIRE(info.tags.track == "3/12");
+}
+
+TEST_CASE("convert_one turns an ALAC M4A into a bit-exact FLAC") {
+    const int subtype = GENERATE(Catch::Generators::as<int>{}, SF_FORMAT_PCM_16, SF_FORMAT_PCM_24);
+    TempDir temp_dir;
+    FixtureSpec spec{.subtype = subtype, .rate = 48000, .seconds = 1.0};
+    auto source = make_m4a(temp_dir.path / "src/a.m4a", M4aCodec::Alac, spec);
+    fs::create_directories(temp_dir.path / "out");
+    Options options = make_options(temp_dir.path / "out"); options.encode.format = Format::Flac;
+    atomic<bool> cancel{false};
+    FileResult result = convert_one(job(source, temp_dir.path / "out/a.flac"), options, cancel);
+    INFO(result.error);
+    REQUIRE(result.outcome == Outcome::Converted);
+    string error_message;
+    auto flac = Decoder::open(temp_dir.path / "out/a.flac", error_message);
+    REQUIRE(flac);
+    REQUIRE(flac->info().bits == (subtype == SF_FORMAT_PCM_16 ? 16 : 24));
+    REQUIRE(flac->info().sample_rate == 48000);
+    vector<int32_t> expected = alac_samples(spec), decoded(expected.size() + 2);
+    REQUIRE(flac->read_int(decoded.data(), static_cast<int64_t>(decoded.size() / 2)) == static_cast<int64_t>(expected.size() / 2));
+    decoded.resize(expected.size());
+    REQUIRE(decoded == expected);
+}
+
+TEST_CASE("convert_one turns an AAC M4A into a 24-bit FLAC of the decoded audio") {
+    TempDir temp_dir;
+    auto source = make_m4a(temp_dir.path / "src/a.m4a", M4aCodec::Aac, {.rate = 44100, .seconds = 1.0});
+    fs::create_directories(temp_dir.path / "out");
+    Options options = make_options(temp_dir.path / "out"); options.encode.format = Format::Flac;
+    atomic<bool> cancel{false};
+    FileResult result = convert_one(job(source, temp_dir.path / "out/a.flac"), options, cancel);
+    INFO(result.error);
+    REQUIRE(result.outcome == Outcome::Converted);   // includes the sample-by-sample check against the decoded AAC
+    string error_message;
+    auto flac = Decoder::open(temp_dir.path / "out/a.flac", error_message);
+    REQUIRE(flac);
+    REQUIRE(flac->info().bits == 24);
+    REQUIRE(flac->info().frames == 44100);
+}
+
+// The content check compares the output with the source decoded again by the same decoder, so it
+// can't see audio missing from the source itself: the decoder's own read_error() has to fail it.
+TEST_CASE("convert_one fails an M4A whose audio ends early instead of writing a short file") {
+    const Format format = GENERATE(Format::Mp3, Format::Flac);
+    TempDir temp_dir;
+    auto source = make_m4a(temp_dir.path / "src/a.m4a", M4aCodec::Aac, {.rate = 44100, .seconds = 4.0}, true);
+    fs::resize_file(source, fs::file_size(source) / 2);
+    fs::create_directories(temp_dir.path / "out");
+    Options options = make_options(temp_dir.path / "out"); options.encode.format = format;
+    const fs::path output = temp_dir.path / (format == Format::Flac ? "out/a.flac" : "out/a.mp3");
+    atomic<bool> cancel{false};
+    FileResult result = convert_one(job(source, output), options, cancel);
+    REQUIRE(result.outcome == Outcome::Failed);
+    REQUIRE_THAT(result.error, ContainsSubstring("cannot decode source"));
+    REQUIRE_FALSE(fs::exists(output));
+    REQUIRE_FALSE(has_temp_files(temp_dir.path / "out"));
+}
+
+TEST_CASE("convert_one names the codec when an MP4's audio isn't AAC or ALAC") {
+    TempDir temp_dir;
+    auto source = make_m4a(temp_dir.path / "src/a.m4a", M4aCodec::Ac3, {.rate = 48000, .seconds = 0.3});
+    fs::create_directories(temp_dir.path / "out");
+    atomic<bool> cancel{false};
+    FileResult result = convert_one(job(source, temp_dir.path / "out/a.mp3"), make_options(temp_dir.path / "out"), cancel);
+    REQUIRE(result.outcome == Outcome::Failed);
+    REQUIRE_THAT(result.error, ContainsSubstring("unsupported audio codec in MP4 container: ac3"));
 }

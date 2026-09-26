@@ -89,6 +89,25 @@ TEST_CASE("cli: converts a folder, then skips everything on the second run") {
     REQUIRE_THAT(second_result.output, ContainsSubstring("Converted 0, skipped 2"));
 }
 
+TEST_CASE("cli: converts M4A (AAC and ALAC) alongside WAV, to MP3 and to FLAC") {
+    TempDir temp_dir;
+    make_audio(temp_dir.path / "src/one.wav", {.seconds = 0.3});
+    make_m4a(temp_dir.path / "src/two.m4a", M4aCodec::Aac, {.seconds = 0.5});
+    make_m4a(temp_dir.path / "src/sub/three.m4a", M4aCodec::Alac, {.seconds = 0.3});
+    auto mp3_result = run_cli({(temp_dir.path / "src").string(), (temp_dir.path / "mp3").string()}, temp_dir.path / "1.log");
+    INFO(mp3_result.output);
+    REQUIRE(mp3_result.code == 0);
+    REQUIRE_THAT(mp3_result.output, ContainsSubstring("Converted 3, skipped 0, failed 0"));
+    REQUIRE(fs::exists(temp_dir.path / "mp3/two.mp3"));
+    REQUIRE(fs::exists(temp_dir.path / "mp3/sub/three.mp3"));
+    auto flac_result = run_cli({(temp_dir.path / "src").string(), (temp_dir.path / "flac").string(), "--format", "flac"}, temp_dir.path / "2.log");
+    INFO(flac_result.output);
+    REQUIRE(flac_result.code == 0);
+    REQUIRE_THAT(flac_result.output, ContainsSubstring("Converted 3, skipped 0, failed 0"));
+    REQUIRE(fs::exists(temp_dir.path / "flac/two.flac"));
+    REQUIRE(fs::exists(temp_dir.path / "flac/sub/three.flac"));
+}
+
 TEST_CASE("cli: a corrupt file fails alone with exit 1 and is named") {
     TempDir temp_dir;
     make_audio(temp_dir.path / "src/good.wav", {.seconds = 0.2});

@@ -26,7 +26,7 @@ There is no built-in macOS tool for this. Apple's AudioToolbox — the engine be
 ## 3. Goals
 
 1. **Batch or single file.** One command converts a whole folder tree, or just one file when that is all you have (R5). Same tool, same output, same options either way.
-2. **Local and private.** No network access, ever.
+2. **Local and private.** Conversion happens on your own machine; files are never sent to an online converter. *(Revised after v1: this used to read "no network access, ever". The concern was ad-laden online conversion services, not the network itself, so beatdown may use the network if a feature ever needs it, as long as the music stays on your machine.)*
 3. **Correct output for rekordbox.** 320 kbps constant bitrate MP3 by default, ID3v2 tags, filenames preserved exactly; rekordbox must show *320 kbps* on import. FLAC on request (`--format flac`), lossless and tagged, for players that read it.
 4. **Safe.** Source files are never modified or deleted. No half-written MP3s are ever left in the output folder, even on Ctrl-C.
 5. **Incremental, and never clobbers.** A file whose output already exists in the destination is skipped and reported, so re-running on a folder converts only what's new — point it at the whole Downloads folder and it does the right thing. Re-encoding an existing output is an explicit `--overwrite`.
@@ -245,7 +245,7 @@ All sixteen were decided in review; each entry records the decision and what it 
   *Decided in review: no for v1; an opt-in `--delete-source` later (M3).* Keep the originals until the tool has earned trust; when it lands, it deletes only after R17 verification passes for that file, never on a failure.
 
 - **Q9. Input formats — WAV only, or WAV + AIFF now and FLAC later?**
-  *Decided in review: WAV, AIFF and FLAC input in v1.* libsndfile reads all three through the same call, so it's only an entry in the scanner's extension filter and a test fixture each. ALAC/M4A are not covered and would need a second decoder later (Q16).
+  *Decided in review: WAV, AIFF and FLAC input in v1.* libsndfile reads all three through the same call, so it's only an entry in the scanner's extension filter and a test fixture each. ALAC/M4A are not covered and would need a second decoder later (Q16). *Update: M4A input (AAC and ALAC) is done — see §10.1.*
 
 - **Q10. Output format — is 320 MP3 the right target for *unreleased* music?**
   *Decided in review: MP3 320 is the default; FLAC output is also in v1 (`--format flac`, R26).* You play on club-standard CDJs and rekordbox on the laptop. Every club CDJ plays 320 MP3, which is why it stays the default and the industry convention; NXS2/3000-era decks and the laptop also play FLAC, lossless at ~55–60% of WAV, so it's there for when the room supports it. Both encoders sit behind the same `Encoder` interface (§7.3); the FLAC one is libsndfile writing instead of reading.
@@ -266,7 +266,7 @@ All sixteen were decided in review; each entry records the decision and what it 
   *Decided in review: MSVC (Visual Studio Build Tools).* It's what vcpkg and GitHub's Windows runners assume, and it produces a binary with no MinGW runtime baggage.
 
 - **Q16. ffmpeg — now, later, or never?**
-  *Decided in review: libsndfile + libmp3lame for v1; ffmpeg deferred to M3.* For WAV → MP3, that's the *same encoder* ffmpeg would use, in a tenth of the dependency, with a far simpler API. The format roadmap is what would bring ffmpeg in: ALAC, AAC and M4A each need pieces — an MP4 muxer/demuxer, an ALAC codec, an AAC codec — that ffmpeg's libraries bundle and nothing else provides cleanly. When those formats get scheduled in M3, `libavcodec`/`libavformat` go behind the same `Decoder`/`Encoder` interfaces as a second backend (or replace the first outright); the interfaces exist so that either is possible without touching the scanner, scheduler or reporting.
+  *Decided in review: libsndfile + libmp3lame for v1; ffmpeg deferred to M3.* For WAV → MP3, that's the *same encoder* ffmpeg would use, in a tenth of the dependency, with a far simpler API. The format roadmap is what would bring ffmpeg in: ALAC, AAC and M4A each need pieces — an MP4 muxer/demuxer, an ALAC codec, an AAC codec — that ffmpeg's libraries bundle and nothing else provides cleanly. When those formats get scheduled in M3, `libavcodec`/`libavformat` go behind the same `Decoder`/`Encoder` interfaces as a second backend (or replace the first outright); the interfaces exist so that either is possible without touching the scanner, scheduler or reporting. *Update: done for input — FFmpeg's libavformat/libavcodec are the second backend, decoding M4A (AAC and ALAC) behind the `Decoder` interface, while libsndfile still reads WAV/AIFF/FLAC.*
 
 ## 9. Success criteria
 
@@ -288,7 +288,7 @@ The v1 is done when all of these hold on this Mac with real Patreon files:
 | **M0 — Spike** | Two halves. (a) `brew install lame`; encode one real Patreon WAV with `lame --cbr -b 320 -q 0`; import to rekordbox; time it. (b) A ~60-line C++ program that links libmp3lame + libsndfile via vcpkg and does the same encode, plus a FLAC write of the same file through libsndfile — built on the Mac *and* in a CI matrix on Windows and Linux. | (a) confirms the encoder settings, the rekordbox bitrate readout and the per-track time; (b) proves the cross-platform toolchain and both encoders before the real code depends on them. |
 | **M1 — Core CLI** | CMake + vcpkg project with CI matrix from day one; scanner, scheduler, libsndfile decoder, libmp3lame encoder with `--bitrate`/`--vbr` (R27), libsndfile FLAC encoder behind `--format flac` (R26), temp-file-and-rename, skip-existing, parallel, summary. | Success criteria 1, 2, 5 and 8. |
 | **M2 — Hardening** | Verification (R17), Ctrl-C cleanup on both signal models (R16, R24), Windows Unicode paths and console (R23), failure reporting (R14), dry-run, tags (R9), mtime (R11), README, right-click recipes per OS, release binaries from CI. | Success criteria 3, 4, 6, 7. |
-| **M3 — Optional** | Accept a `.zip` as the source; `--refresh` (re-encode when the source is newer than its output); `--delete-source` after verified conversion (Q8); a real cross-platform GUI (confirmed follow-up, Q1); package managers (Homebrew tap, winget, AUR); ffmpeg's libraries as a second backend for the M4A-family formats (Q16), and the rest of the roadmap in §10.1. | Whichever of these you still want after using v1 for a few weeks. |
+| **M3 — Optional** | Accept a `.zip` as the source; `--refresh` (re-encode when the source is newer than its output); `--delete-source` after verified conversion (Q8); a real cross-platform GUI (confirmed follow-up, Q1); package managers (Homebrew tap, winget, AUR); ffmpeg's libraries as a second backend for the M4A-family formats (Q16; M4A input done), and the rest of the roadmap in §10.1. | Whichever of these you still want after using v1 for a few weeks. |
 
 ### 10.1 Format roadmap
 
@@ -304,7 +304,7 @@ Not v1, but the README's promise is "convert audio files to different formats", 
 | **ALAC (.m4a)** | out | Apple Lossless; rekordbox and NXS2+ players read it. | Medium | Needs an ALAC encoder (Apple's is open source) and an MP4 muxer; libsndfile doesn't do the M4A container. ffmpeg's libraries have both (Q16). |
 | **AAC (.m4a)** | out | Smaller than MP3 at equal quality; NXS2+ players read it. | Hard | No clean encoder: fdk-aac's licence is awkward for an MIT project, and platform encoders break "same output on every OS". Probably never. |
 | **FLAC** | in | Convert lossless downloads to MP3 for USB sticks. | v1 | Free with libsndfile; pulled into v1 in review (Q9). |
-| **ALAC / AAC (.m4a)** | in | Convert Apple-format purchases. | Medium | Needs an MP4 demuxer plus ALAC and AAC decoders — a second decoder behind the `Decoder` interface; ffmpeg's libraries have all three (Q16). |
+| **ALAC / AAC (.m4a)** | in | Convert Apple-format purchases. | Done | FFmpeg's MP4 demuxer and its own AAC and ALAC decoders, as a second backend behind the `Decoder` interface (Q16). Other codecs in an MP4 are refused. |
 | **MP3** | in | Only as pass-through (copy + retag), never re-encode: lossy → lossy degrades. | Small | libsndfile reads MP3; the tool should refuse `mp3 → mp3` re-encoding unless forced. |
 | **Opus / Ogg** | either | No Pioneer player or rekordbox support. | — | Skip. |
 

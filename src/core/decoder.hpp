@@ -9,8 +9,10 @@ namespace beatdown {
 struct AudioInfo {
     int channels = 0;
     int sample_rate = 0;
+    // For an M4A source, the container's declared length until the stream has been read to its
+    // end, then the exact number of frames it decoded to (see M4aDecoder in m4a_decoder.cpp).
     int64_t frames = 0;
-    int format = 0;        // raw libsndfile format word
+    int format = 0;        // raw libsndfile format word; 0 for an M4A source
     int bits = 0;          // 8/16/24/32
     bool is_float = false;
     double seconds() const { return sample_rate ? double(frames) / sample_rate : 0.0; }
@@ -30,26 +32,39 @@ struct AudioInfo {
 // FlacEncoder's write-mode open) keeps that global state consistent.
 mutex& sf_open_mutex();
 
+// A source file being decoded. Two backends sit behind this interface (PRD Q16): libsndfile for
+// WAV/AIFF/FLAC (and the MP3s that are refused), and FFmpeg's libraries for M4A (AAC or ALAC in
+// an MP4 container). Callers only ever see this class.
 class Decoder {
 public:
+    // Picks the backend by content, not extension: a file that opens with an MP4 'ftyp' box goes
+    // to FFmpeg, everything else to libsndfile -- the same way an MP3 renamed to .wav is still
+    // recognised as MP3. On failure returns nullptr and sets `error`.
     static unique_ptr<Decoder> open(const fs::path& path, string& error);
-    ~Decoder();
+    virtual ~Decoder() = default;
     Decoder(const Decoder&) = delete;
     Decoder& operator=(const Decoder&) = delete;
 
     const AudioInfo& info() const { return info_; }
     const Tags& tags() const { return tags_; }
     const fs::path& path() const { return path_; }
-    int64_t read_float(float* interleaved, int64_t frames);
-    int64_t read_int(int32_t* interleaved, int64_t frames);
-    bool seek_start();
+    // Interleaved frames, libsndfile's scaling for both backends: floats nominally within +-1.0,
+    // integers left-justified in 32 bits (a 16-bit sample x reads back as x << 16). Returns the
+    // number of frames read; 0 at the end of the stream, or after a decode error (read_error()).
+    virtual int64_t read_float(float* interleaved, int64_t frames) = 0;
+    virtual int64_t read_int(int32_t* interleaved, int64_t frames) = 0;
+    virtual bool seek_start() = 0;
+    // "" unless reading stopped early because the source couldn't be decoded to its end (a
+    // damaged or truncated M4A) -- a read that returns 0 then means "gave up", not "finished".
+    // libsndfile doesn't distinguish the two, so this is always "" for its formats.
+    const string& read_error() const { return read_error_; }
 
-private:
+protected:
     Decoder() = default;
-    SNDFILE* sndfile_ = nullptr;
     AudioInfo info_;
     Tags tags_;
     fs::path path_;
+    string read_error_;
 };
 
 }  // namespace beatdown
