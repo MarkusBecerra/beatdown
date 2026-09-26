@@ -123,6 +123,10 @@ Beyond that one-time measurement, every file beatdown converts now has its *audi
 - **Loud masters.** A master peaking near 0 dBFS decodes slightly over full scale — around +0.5 dB on a handful of samples for a typical loud master, which measured tens of dB below the music and is inaudible on a club system. beatdown flags anything louder itself: if a converted file decodes above +1.0 dBFS, the run's summary calls it out as a very loud master. A −1 dBTP export avoids the overs for typical masters (an unusually bright or hard-clipped one can still show a couple, since much of its energy sits above 20 kHz, where the MP3 removes it anyway).
 - **One check only you can do.** MP3 decoders don't all agree on where the stream starts — LAME's own decoder and Apple's differ by a constant 23 ms, depending on whether the decoder reads LAME's gapless tag. Put a hot cue exactly on a kick in rekordbox, export to USB, and confirm the cue still lands on the transient when you play it on the CDJ.
 
+## How the code is organized
+
+To read or change the code, start with [ARCHITECTURE.md](ARCHITECTURE.md), a map of the repository and how a conversion flows through it. Every directory also has its own `README.md` describing its files in plain English.
+
 ## Licence
 
 beatdown itself is MIT-licensed (see `LICENSE`). It statically links four LGPL libraries: libmp3lame (LGPL-2.0 — vcpkg's port metadata says LGPL-2.0-only), libsndfile (LGPL-2.1-or-later), mpg123 (LGPL-2.1-or-later — libsndfile's MP3-decoding backend, used to verify a converted MP3's audio content against its source) and FFmpeg's libavformat, libavcodec and libavutil (LGPL-2.1-or-later — built without FFmpeg's GPL and non-free parts; they decode M4A). The LGPL requires that relinking against a different build of those libraries stay possible: this repository, together with the pinned `external/vcpkg` submodule that fixes their exact versions and build flags, is the complete recipe for that — `git clone --recursive` and the two build commands above reproduce the exact libraries any given release was linked against.
